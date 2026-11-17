@@ -70,24 +70,23 @@ pub fn run(args: &[String]) -> i32 {
         pool.run(Request::Tile { path: path.clone(), page: 0, scale: s, tx, ty }, Prio::Tile).await.expect("tile");
         println!("page 1 deep-zoom tile @ 8 px/pt:                 {}", ms(t));
 
-        // Low-res placeholder of every page (what the grid view shows).
+        // Low-res placeholder of every page (what the grid view shows), in screen-sized
+        // batches like the viewer asks for them (the tile queue drops >64 as stale).
         let t = Instant::now();
-        let rxs: Vec<_> = pages
-            .iter()
-            .enumerate()
-            .map(|(i, (w, h))| {
-                let s = ((TILE as f64 / w).min(TILE as f64 / h) * 1000.0).floor() / 1000.0;
-                pool.submit(Request::Tile { path: path.clone(), page: i as u32, scale: s, tx: 0, ty: 0 }, Prio::Tile, None)
-            })
-            .collect();
         let mut failed = 0;
-        let mut slowest = 0.0f64;
-        for rx in rxs {
-            let t1 = Instant::now();
-            if rx.await.unwrap().is_err() {
-                failed += 1;
+        for chunk in pages.iter().enumerate().collect::<Vec<_>>().chunks(24) {
+            let rxs: Vec<_> = chunk
+                .iter()
+                .map(|(i, (w, h))| {
+                    let s = ((TILE as f64 / w).min(TILE as f64 / h) * 1000.0).floor() / 1000.0;
+                    pool.submit(Request::Tile { path: path.clone(), page: *i as u32, scale: s, tx: 0, ty: 0 }, Prio::Tile, None)
+                })
+                .collect();
+            for rx in rxs {
+                if !matches!(rx.await, Ok(Ok(_))) {
+                    failed += 1;
+                }
             }
-            slowest = slowest.max(t1.elapsed().as_secs_f64());
         }
         println!("placeholders, all {} pages:                       {}  ({failed} failed)", pages.len(), ms(t));
 

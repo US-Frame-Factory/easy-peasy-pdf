@@ -82,7 +82,7 @@ body.has-docs #empty { display: none; }
   background: repeating-linear-gradient(45deg, #fde8e8, #fde8e8 8px, #fff 8px, #fff 16px);
   color: #a11; font-size: 12px; overflow: hidden;
 }
-.page.grid { cursor: pointer; overflow: visible; }
+.page.grid { cursor: pointer; overflow: visible; contain: layout style; }
 .page.grid > .lbl {
   position: absolute; left: 0; right: 0; top: 100%; margin-top: 4px; text-align: center; color: #e9ecf1; font-size: 12px;
 }

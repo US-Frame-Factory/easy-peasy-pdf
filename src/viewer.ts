@@ -78,6 +78,7 @@ export class Viewer {
   private contentH = 0;
   private views = new Map<number, PageView>();
   private raf = 0;
+  private fallback = 0;
   private tileTimer = 0;
   private zooming = false;
   private dpr = window.devicePixelRatio || 1;
@@ -211,6 +212,13 @@ export class Viewer {
   jumpTo(page: number, index: number) {
     if (!this.doc) return;
     if (this.doc.mode === 'grid') this.setMode('scroll');
+    if (this.doc.zoom < 0.75) {
+      // Make the hit legible: plan text is tiny at "fit width".
+      this.doc.zoom = 1;
+      this.doc.fit = false;
+      this.relayout();
+      this.ev.onZoomChange();
+    }
     this.current = { page, index };
     this.pendingJump = { page, index };
     for (const v of this.views.values()) v.hlKey = '';
@@ -270,23 +278,26 @@ export class Viewer {
       const cols = Math.max(1, Math.floor((vw - PAD) / (cell + GAP + 8)));
       const rowW = cols * (cell + GAP + 8) - GAP - 8;
       const x0 = Math.max(PAD, (vw - rowW) / 2);
-      for (let i = 0; i < pages.length; i++) {
-        const [w, h] = pages[i];
-        const s = Math.min(cell / w, cell / h);
-        const tw = w * s;
-        const th = h * s;
-        const col = i % cols;
-        const row = Math.floor(i / cols);
-        slots[i] = {
-          x: x0 + col * (cell + GAP + 8) + (cell - tw) / 2,
-          y: PAD + row * (cell + GAP + LABEL_H) + (cell - th),
-          w: tw,
-          h: th,
-        };
+      // Rows are as tall as their tallest thumbnail (landscape sheets pack tightly).
+      let y = PAD;
+      for (let r = 0; r * cols < pages.length; r++) {
+        let rowH = 0;
+        const end = Math.min(pages.length, (r + 1) * cols);
+        for (let i = r * cols; i < end; i++) {
+          const [w, h] = pages[i];
+          rowH = Math.max(rowH, h * Math.min(cell / w, cell / h));
+        }
+        for (let i = r * cols; i < end; i++) {
+          const [w, h] = pages[i];
+          const k = Math.min(cell / w, cell / h);
+          const tw = w * k;
+          const th = h * k;
+          slots[i] = { x: x0 + (i - r * cols) * (cell + GAP + 8) + (cell - tw) / 2, y: y + (rowH - th), w: tw, h: th };
+        }
+        y += rowH + LABEL_H + GAP;
       }
-      const rows = Math.ceil(pages.length / cols);
       this.contentW = vw;
-      this.contentH = PAD * 2 + rows * (cell + GAP + LABEL_H);
+      this.contentH = y + PAD;
     } else {
       const z = d.zoom;
       const per = d.mode === 'two' ? 2 : 1;
@@ -440,7 +451,12 @@ export class Viewer {
   // ---------- rendering ----------
 
   schedule() {
-    if (!this.raf) this.raf = requestAnimationFrame(() => this.update());
+    // rAF can be throttled (hidden/occluded webviews); a timer backs it up.
+    if (!this.raf) {
+      this.raf = requestAnimationFrame(() => this.update());
+      clearTimeout(this.fallback);
+      this.fallback = window.setTimeout(() => this.raf && this.update(), 80);
+    }
   }
 
   private clearViews() {

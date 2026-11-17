@@ -1,0 +1,90 @@
+# Easy Peasy PDF
+
+A minimal, fast, crash-resistant desktop PDF viewer for big construction plan sets.
+Built for people who only *view* plans (no markups, measuring or editing).
+
+## What it does
+
+- **Opens huge, heavy vector plan PDFs fast** – pages are rendered as 512 px tiles, only for
+  what's on screen, by a pool of separate render processes.
+- **Never takes the window down** – PDFium runs in worker processes (the same exe started with
+  `--render-worker`). If a worker crashes or hangs on a bad page (>120 s), it's killed and
+  restarted, the job is retried once, and only that tile shows an error.
+- **Tabs** – open several files at once: multi-select in the Open dialog, drag-and-drop onto the
+  window, or "Open with" / double-click a `.pdf` (a second launch adds tabs to the running window).
+- **Views** – continuous scroll, two-up, thumbnail grid.
+- **Zoom** – Ctrl+wheel or touchpad pinch zooms around the cursor; Ctrl + / Ctrl − / Ctrl 0
+  (fit width), Ctrl 1 (100 %).
+- **Deep search** – every page's text is indexed in the background after a file opens. Search the
+  current file or all open files; the results list shows file, page and a snippet; hits are
+  highlighted on the sheet; click a result (or Enter / F3) to jump to it.
+- **Extract sheets** – pick pages in the Grid view (click, Ctrl+click, Shift+click, Ctrl+A) or type a
+  range like `1-3, 7`, then **Save As…**. The new PDF is made by copying the original pages, so the
+  sheets stay vector (not images).
+
+### Keyboard
+
+| Keys | Action |
+| --- | --- |
+| Ctrl+O | Open PDFs |
+| Ctrl+W / Ctrl+Tab | Close tab / next tab |
+| Ctrl+F, Enter / Shift+Enter, F3 | Search, next / previous hit |
+| Ctrl+E | Extract sheets |
+| Ctrl + / − / 0 / 1 | Zoom in / out / fit width / 100 % |
+| Ctrl+A, Esc (Grid) | Select all / clear selection |
+
+## Download (Windows)
+
+Every push to `main` runs the **Windows build** GitHub Action. Open the latest run under
+*Actions → Windows build* and download the `EasyPeasyPDF-msi` artifact (zip containing the `.msi`).
+The installer registers Easy Peasy PDF as an "Open with" handler for `.pdf`.
+
+## Development
+
+Prerequisites: Node 20+, Rust (stable), and the
+[Tauri 2 system dependencies](https://v2.tauri.app/start/prerequisites/) for your OS
+(on Windows: WebView2 – preinstalled on Windows 10/11 – and the MSVC build tools).
+
+```sh
+npm install
+npm run fetch-pdfium      # downloads the pinned PDFium build into src-tauri/pdfium/
+npx tauri dev             # run the app with hot reload
+npx tauri build           # release build + installers (src-tauri/target/release/bundle/)
+```
+
+PDFium comes from [bblanchon/pdfium-binaries](https://github.com/bblanchon/pdfium-binaries),
+pinned in `scripts/fetch-pdfium.mjs` (`chromium/8125`, the API version `pdfium-render`'s
+`pdfium_latest` feature targets). The binary is git-ignored and bundled as a Tauri resource. At
+runtime the app looks for it in `resource_dir/pdfium/`, next to the exe, then `src-tauri/pdfium/`.
+
+### Headless benchmark
+
+```sh
+src-tauri/target/release/easy-peasy-pdf --bench path/to/plans.pdf [workers]
+```
+
+Runs the real pool + worker processes and prints open time, first-page tile times, deep-zoom
+tile time, placeholder/thumbnail time for every page, text indexing, find, extract, and a
+crash-recovery check. `EPP_WORKERS=n` overrides the worker count in the app
+(default: CPU cores − 1, between 1 and 4).
+
+## How it's built
+
+- **Tauri 2** (Rust) + plain TypeScript + Vite, no UI framework.
+- **PDFium** via [`pdfium-render`](https://crates.io/crates/pdfium-render) (BSD/Apache licensed).
+- `src-tauri/src/worker.rs` – render worker process: line-delimited JSON requests on stdin; framed
+  responses on stdout (`u32` header length, JSON header, `u32` body length, body). Keeps LRUs of
+  ~6 open documents and ~6 loaded pages.
+- `src-tauri/src/pool.rs` – worker pool and job queues: interactive (info/find/extract) first, then
+  tiles LIFO (newest = on screen; capped at 64, older ones fail as "stale" and the viewer re-asks
+  if they're still visible), then background text indexing (never on all workers at once).
+  A watchdog kills workers that run a job for more than 120 s.
+- `src-tauri/src/lib.rs` – Tauri commands, the in-memory search index, and the async `tile:` URI
+  scheme (`{doc}/{page}/{scale_milli}/{tx}/{ty}` → uncompressed 32-bit BMP, which PDFium's BGRA
+  output maps onto with no encoding cost).
+- `src/viewer.ts` – virtualized layout. Only pages near the viewport are in the DOM and only
+  visible tiles are requested. Each page has a one-tile low-res placeholder (also the grid
+  thumbnail); the render scale is zoom × devicePixelRatio rounded up to √2 steps (max 16 px/pt).
+  Tiles are positioned in % of the page so the old layer stretches while a new zoom level loads.
+
+Debug aid: Ctrl+Shift+Alt+K kills a render worker so you can watch the app recover.
