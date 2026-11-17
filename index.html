@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Easy Peasy PDF</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <header id="toolbar">
+      <button id="btn-open" title="Open PDFs (Ctrl+O)">Open…</button>
+      <span class="sep"></span>
+      <div class="seg" id="view-modes">
+        <button data-mode="scroll" title="Continuous scroll">Scroll</button>
+        <button data-mode="two" title="Two pages side by side">Two-up</button>
+        <button data-mode="grid" title="Thumbnail grid (click / Ctrl / Shift to select)">Grid</button>
+      </div>
+      <span class="sep"></span>
+      <button id="btn-zoom-out" title="Zoom out (Ctrl -)">−</button>
+      <span id="zoom-label" class="label">100%</span>
+      <button id="btn-zoom-in" title="Zoom in (Ctrl +)">+</button>
+      <button id="btn-fit" title="Fit width (Ctrl 0)">Fit width</button>
+      <span class="sep"></span>
+      <input id="page-input" type="text" inputmode="numeric" title="Go to page" />
+      <span id="page-count" class="label">/ 0</span>
+      <span class="spacer"></span>
+      <button id="btn-extract" title="Extract sheets to a new PDF (Ctrl+E)">Extract…</button>
+      <button id="btn-search" title="Search (Ctrl+F)">Search</button>
+    </header>
+    <nav id="tabs"></nav>
+    <main id="main">
+      <div id="viewer" tabindex="0">
+        <div id="content"></div>
+      </div>
+      <div id="empty">
+        <div>
+          <h1>Easy Peasy PDF</h1>
+          <p>Open plan sets with <kbd>Ctrl</kbd>+<kbd>O</kbd> or drop PDFs here.</p>
+          <button id="btn-open-big">Open PDFs…</button>
+        </div>
+      </div>
+      <aside id="search-panel" hidden>
+        <div class="search-head">
+          <input id="search-input" type="search" placeholder="Search text…" spellcheck="false" />
+          <div class="scope">
+            <label><input type="radio" name="scope" value="doc" checked /> This file</label>
+            <label><input type="radio" name="scope" value="all" /> All open files</label>
+          </div>
+          <div id="search-status" class="muted"></div>
+        </div>
+        <div id="search-results"></div>
+      </aside>
+      <div id="drop-overlay" hidden>Drop PDFs to open</div>
+    </main>
+    <dialog id="extract-dialog">
+      <form method="dialog">
+        <h2>Extract sheets</h2>
+        <p class="muted" id="extract-doc"></p>
+        <label for="extract-range">Pages (e.g. <code>1-3, 7</code>)</label>
+        <input id="extract-range" type="text" spellcheck="false" autocomplete="off" />
+        <p class="muted">Tip: select sheets in Grid view with click, Ctrl+click and Shift+click.</p>
+        <p id="extract-error" class="error"></p>
+        <div class="buttons">
+          <button value="cancel" formnovalidate>Cancel</button>
+          <button id="extract-go" value="go" class="primary">Save As…</button>
+        </div>
+      </form>
+    </dialog>
+    <div id="toasts"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
