@@ -24,6 +24,41 @@ function remember(url: string, blob: Blob) {
   }
 }
 
+// Our own LIFO limiter: the webview caps concurrent requests per host and would
+// otherwise queue them FIFO, so stale tiles from a fling would render first.
+const MAX_INFLIGHT = 8;
+let active = 0;
+const waiting: { run: () => void; wanted: () => boolean; skip: () => void }[] = [];
+
+function pump() {
+  while (active < MAX_INFLIGHT && waiting.length) {
+    const job = waiting.pop()!; // newest first
+    if (!job.wanted()) {
+      job.skip();
+      continue;
+    }
+    active++;
+    job.run();
+  }
+}
+
+function limited(url: string, wanted: () => boolean): Promise<Blob> {
+  return new Promise<Blob>((resolve, reject) => {
+    waiting.push({
+      wanted,
+      skip: () => reject(new TileError('abandoned', false)),
+      run: () =>
+        fetchTile(url)
+          .then(resolve, reject)
+          .finally(() => {
+            active--;
+            pump();
+          }),
+    });
+    pump();
+  });
+}
+
 export function fetchTile(url: string): Promise<Blob> {
   const hit = cache.get(url);
   if (hit) {
@@ -71,7 +106,7 @@ export async function loadInto(
   for (let attempt = 0; ; attempt++) {
     if (!stillWanted()) return false;
     try {
-      const blob = await fetchTile(url);
+      const blob = cache.has(url) ? await fetchTile(url) : await limited(url, stillWanted);
       if (!stillWanted()) return false;
       const obj = URL.createObjectURL(blob);
       img.src = obj;

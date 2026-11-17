@@ -69,7 +69,22 @@ fn pdf_args(args: &[String]) -> Vec<String> {
 /// Canonical path without Windows' `\\?\` prefix.
 fn clean_path(p: &Path) -> String {
     let s = p.to_string_lossy().to_string();
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{rest}"); // network share: \\server\share\...
+    }
     s.strip_prefix(r"\\?\").map(|s| s.to_string()).unwrap_or(s)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn clean_paths() {
+        use std::path::Path;
+        assert_eq!(super::clean_path(Path::new(r"\\?\C:\plans\a.pdf")), r"C:\plans\a.pdf");
+        assert_eq!(super::clean_path(Path::new(r"\\?\UNC\srv\share\a.pdf")), r"\\srv\share\a.pdf");
+        assert_eq!(super::clean_path(Path::new("/home/a.pdf")), "/home/a.pdf");
+        assert_eq!(super::percent_decode("1%2F2%2F354%2F0%2F0"), "1/2/354/0/0");
+    }
 }
 
 #[derive(Serialize)]

@@ -116,22 +116,20 @@ const opening = new Set<string>();
 async function openPaths(paths: string[]) {
   const pdfs = paths.filter((p) => /\.pdf$/i.test(p));
   if (paths.length && !pdfs.length) toast('Only PDF files can be opened.', true);
-  let first: DocState | null = null;
-  await Promise.all(
-    pdfs.map(async (path) => {
+  // Open in parallel, but add tabs in the order the files were given.
+  const results = await Promise.all(
+    pdfs.map(async (path): Promise<DocState | null> => {
       const norm = path.toLowerCase();
       const existing = docs.find((d) => d.info.path.toLowerCase() === norm);
-      if (existing) {
-        first ??= existing;
-        return;
-      }
-      if (opening.has(norm)) return;
+      if (existing) return existing;
+      if (opening.has(norm)) return null;
       opening.add(norm);
       try {
         const info = await api.openDoc(path);
-        if (docs.some((d) => d.info.path === info.path)) return;
+        const dup = docs.find((d) => d.info.path === info.path);
+        if (dup) return dup;
         if (!info.pages.length) throw new Error('the PDF has no pages');
-        const d: DocState = {
+        return {
           info,
           mode: 'scroll',
           zoom: 1,
@@ -142,17 +140,22 @@ async function openPaths(paths: string[]) {
           selected: new Set(),
           anchor: null,
         };
-        docs.push(d);
-        first ??= d;
-        renderTabs();
-        updateToolbar();
       } catch (e) {
         toast(`Could not open ${path.split(/[\\/]/).pop()}: ${e}`, true);
+        return null;
       } finally {
         opening.delete(norm);
       }
     }),
   );
+  let first: DocState | null = null;
+  for (const d of results) {
+    if (!d) continue;
+    if (!docs.includes(d)) docs.push(d);
+    first ??= d;
+  }
+  renderTabs();
+  updateToolbar();
   if (first) activate(first);
 }
 
