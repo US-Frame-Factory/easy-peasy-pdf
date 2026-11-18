@@ -141,3 +141,11 @@ dialog .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top
 #toasts { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; z-index: 20; }
 .toast { background: #1d2330; color: #fff; padding: 8px 14px; border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.3); max-width: 70vw; }
 .toast.err { background: #8a1c1c; }
+
+button.ghost { border-color: transparent; background: transparent; color: var(--muted); padding: 4px 6px; }
+button.ghost:hover { background: #eef1f5; }
+#update-bar {
+  display: flex; align-items: center; gap: 10px; padding: 6px 12px; flex: none;
+  background: #e8f1fd; border-bottom: 1px solid #b9d2f3; color: #0f3d7a;
+}
+#update-bar span { flex: 1; }

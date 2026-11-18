@@ -3,6 +3,7 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { api, DocInfo, Hit } from './api';
 import { formatRanges, parseRanges } from './ranges';
+import { initUpdates } from './updates';
 import { DocState, Mode, Viewer } from './viewer';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -721,6 +722,8 @@ getCurrentWebview()
   .catch(() => {});
 
 listen<string[]>('open-files', (e) => openPaths(e.payload));
+
+initUpdates(toast);
 
 focused.el.classList.add('focused');
 focused.renderHead();

@@ -44,10 +44,28 @@ Built for people who only *view* plans (no markups, measuring or editing).
 
 ## Download (Windows)
 
-The **Windows build** GitHub Action runs only when started by hand: *Actions → Windows build →
-Run workflow* (branch `main`). When it finishes, download the `EasyPeasyPDF-msi` artifact from
-the run (a zip containing the `.msi`).
-The installer registers Easy Peasy PDF as an "Open with" handler for `.pdf`.
+Latest installer: **[EasyPeasyPDF-setup.exe](https://github.com/US-Frame-Factory/easy-peasy-pdf/releases/latest/download/EasyPeasyPDF-setup.exe)**
+(installs for the current user, no admin needed, registers "Open with" for `.pdf`).
+An `.msi` for per-machine installs is on the [Releases](https://github.com/US-Frame-Factory/easy-peasy-pdf/releases) page.
+
+## Updates
+
+The app checks for a new version a few seconds after it starts (and every 4 hours), and shows an
+**Update & restart** bar when one is out. Click the version number at the top right to check by hand.
+
+Updates are published from GitHub Releases and are signed: the app only installs packages signed
+with the project's update key (its public half is in `src-tauri/tauri.conf.json`).
+
+**To ship a new version:** Actions → *Windows build* → *Run workflow*. Optionally type a version
+(e.g. `0.2.0`; empty = `0.1.<run number>`) and release notes. The workflow builds the installers and
+publishes a release; installed copies offer the update within a few hours (or on next start).
+
+**One-time setup:** add the private update key as repository secrets
+(*Settings → Secrets and variables → Actions*): `TAURI_SIGNING_PRIVATE_KEY` (the key file's
+contents) and, if the key has one, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Without the secret the
+workflow still publishes installers, but those releases can't be delivered as in-app updates.
+Keep a backup of the key: if it's lost, installed copies can't verify new updates and everyone must
+reinstall once from a build with a new key.
 
 ## Development
 

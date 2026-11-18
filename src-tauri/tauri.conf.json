@@ -29,7 +29,13 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["msi", "nsis", "deb", "appimage", "dmg"],
+    "targets": [
+      "msi",
+      "nsis",
+      "deb",
+      "appimage",
+      "dmg"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -37,10 +43,14 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": ["pdfium/*"],
+    "resources": [
+      "pdfium/*"
+    ],
     "fileAssociations": [
       {
-        "ext": ["pdf"],
+        "ext": [
+          "pdf"
+        ],
         "name": "PDF Document",
         "description": "PDF Document",
         "mimeType": "application/pdf",
@@ -50,7 +60,24 @@
     "shortDescription": "Fast viewer for big construction plan sets",
     "publisher": "US Frame Factory",
     "windows": {
-      "webviewInstallMode": { "type": "embedBootstrapper" }
+      "webviewInstallMode": {
+        "type": "embedBootstrapper"
+      },
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY0QUYyNzE3RkE2M0M0RUUKUldUdXhHUDZGeWV2WkZqbmxGK3MxV01ISEV0MzlVUFJXL2kvR0NmYjIwcTZHdVRuWjFGQzVvOEIK",
+      "endpoints": [
+        "https://github.com/US-Frame-Factory/easy-peasy-pdf/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }
