@@ -75,6 +75,28 @@ fn is_title_like(s: &str) -> bool {
     !(s.contains('"') || s.contains('='))
 }
 
+/// The sheet number only (what the app shows).
+pub fn sheet_number(runs: &[Run], pw: f32, ph: f32) -> Option<String> {
+    let mut best: Option<(f32, String)> = None;
+    for r in runs {
+        let xf = (r.x + r.w / 2.0) / pw;
+        let yf = (r.y + r.h / 2.0) / ph;
+        if xf < 0.5 || yf < 0.5 {
+            continue;
+        }
+        for tok in r.text.split(|c: char| c.is_whitespace() || c == ':' || c == '#') {
+            let tok = tok.trim_matches(|c: char| c == ',' || c == ';' || c == '(' || c == ')');
+            if is_sheet_number(tok) {
+                let score = r.w.min(r.h) * (1.0 + 2.0 * xf * xf + 2.0 * yf * yf);
+                if best.as_ref().is_none_or(|(s, _)| score > *s) {
+                    best = Some((score, tok.to_string()));
+                }
+            }
+        }
+    }
+    best.map(|(_, n)| n)
+}
+
 /// Returns (sheet number, sheet title) for a page of size `pw` x `ph` points.
 pub fn detect(runs: &[Run], pw: f32, ph: f32) -> (Option<String>, Option<String>) {
     // Sheet number: biggest candidate, biased toward the bottom-right corner.
@@ -90,7 +112,7 @@ pub fn detect(runs: &[Run], pw: f32, ph: f32) -> (Option<String>, Option<String>
             if !is_sheet_number(tok) {
                 continue;
             }
-            let score = r.h * (1.0 + 2.0 * xf * xf + 2.0 * yf * yf);
+            let score = r.w.min(r.h) * (1.0 + 2.0 * xf * xf + 2.0 * yf * yf);
             if best.as_ref().is_none_or(|(s, _, _)| score > *s) {
                 best = Some((score, r, tok.to_string()));
             }
@@ -123,6 +145,17 @@ pub fn detect(runs: &[Run], pw: f32, ph: f32) -> (Option<String>, Option<String>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vertical_note_does_not_beat_title_block() {
+        let run = |text: &str, x, y, w, h| Run { text: text.into(), x, y, w, h };
+        let runs = [
+            // A note running up the page: tall box, thin text.
+            run("MATCH LINE A-A SEE PARTIAL PLAN ON SHEET S-2B", 1450.0, 830.0, 10.0, 393.0),
+            run("S-2A", 2370.0, 1600.0, 45.0, 18.6),
+        ];
+        assert_eq!(sheet_number(&runs, 2592.0, 1728.0).as_deref(), Some("S-2A"));
+    }
     #[test]
     fn sheet_numbers() {
         for ok in ["S-208", "S-20A", "A1.01", "S0.1", "G-1", "E101", "S-001", "SK-3", "A 101"] {

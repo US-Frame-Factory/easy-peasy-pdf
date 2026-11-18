@@ -131,26 +131,46 @@ pub fn run(args: &[String]) -> i32 {
     0
 }
 
-/// Maps a rect in PDF user space to top-left-origin display points, applying /Rotate.
-fn to_display(page: &PdfPage, r: &PdfRect) -> [f32; 4] {
-    let bbox = page
-        .boundaries()
-        .crop()
-        .or_else(|_| page.boundaries().media())
-        .map(|b| b.bounds)
-        .unwrap_or(PdfRect::new_from_values(0.0, 0.0, page.height().value, page.width().value));
-    let (bx0, by1) = (bbox.left().value, bbox.top().value);
-    let (bw, bh) = (bbox.width().value, bbox.height().value);
-    // Unrotated, top-left origin.
-    let (u0, u1) = (r.left().value - bx0, r.right().value - bx0);
-    let (v0, v1) = (by1 - r.top().value, by1 - r.bottom().value);
-    let (x0, y0, x1, y1) = match page.rotation().unwrap_or(PdfPageRenderRotation::None) {
-        PdfPageRenderRotation::None => (u0, v0, u1, v1),
-        PdfPageRenderRotation::Degrees90 => (bh - v1, u0, bh - v0, u1),
-        PdfPageRenderRotation::Degrees180 => (bw - u1, bh - v1, bw - u0, bh - v0),
-        PdfPageRenderRotation::Degrees270 => (v0, bw - u1, v1, bw - u0),
-    };
-    [x0, y0, x1 - x0, y1 - y0]
+/// Maps rects in PDF user space to top-left-origin display points, applying /Rotate.
+/// Built once per page (crop box and rotation are FFI lookups).
+struct Xform {
+    bx0: f32,
+    by1: f32,
+    bw: f32,
+    bh: f32,
+    rot: PdfPageRenderRotation,
+}
+
+impl Xform {
+    fn new(page: &PdfPage) -> Self {
+        let bbox = page
+            .boundaries()
+            .crop()
+            .or_else(|_| page.boundaries().media())
+            .map(|b| b.bounds)
+            .unwrap_or(PdfRect::new_from_values(0.0, 0.0, page.height().value, page.width().value));
+        Xform {
+            bx0: bbox.left().value,
+            by1: bbox.top().value,
+            bw: bbox.width().value,
+            bh: bbox.height().value,
+            rot: page.rotation().unwrap_or(PdfPageRenderRotation::None),
+        }
+    }
+
+    fn apply(&self, r: &PdfRect) -> [f32; 4] {
+        let (bw, bh) = (self.bw, self.bh);
+        // Unrotated, top-left origin.
+        let (u0, u1) = (r.left().value - self.bx0, r.right().value - self.bx0);
+        let (v0, v1) = (self.by1 - r.top().value, self.by1 - r.bottom().value);
+        let (x0, y0, x1, y1) = match self.rot {
+            PdfPageRenderRotation::None => (u0, v0, u1, v1),
+            PdfPageRenderRotation::Degrees90 => (bh - v1, u0, bh - v0, u1),
+            PdfPageRenderRotation::Degrees180 => (bw - u1, bh - v1, bw - u0, bh - v0),
+            PdfPageRenderRotation::Degrees270 => (v0, bw - u1, v1, bw - u0),
+        };
+        [x0, y0, x1 - x0, y1 - y0]
+    }
 }
 
 fn handle(cache: &mut Cache, req: Request) -> OpResult {
@@ -206,21 +226,38 @@ fn handle(cache: &mut Cache, req: Request) -> OpResult {
             let all = text.all();
             // Sheet number/title from the title block, plus the PDF page label if it's
             // more than just the page number.
-            let runs: Vec<Run> = text
-                .segments()
-                .iter()
-                .map(|seg| {
-                    let [x, y, w, h] = to_display(p, &seg.bounds());
-                    Run { text: seg.text(), x, y, w, h }
+            // Sheet number: the largest sheet-number-shaped text in the title-block corner.
+            // Fetching a run's text is a PDFium call each, so pick candidates by position
+            // and size first and only read the text of the tallest few.
+            let xf = Xform::new(p);
+            let (pw, ph) = (p.width().value, p.height().value);
+            let mut boxes: Vec<(usize, [f32; 4])> = Vec::new();
+            let segs = text.segments();
+            for (i, seg) in segs.iter().enumerate() {
+                let r = xf.apply(&seg.bounds());
+                let (cx, cy) = (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0);
+                if cx >= pw * 0.5 && cy >= ph * 0.5 {
+                    boxes.push((i, r));
+                }
+            }
+            // Text size = the box's smaller side, so vertical notes don't look huge.
+            boxes.sort_by(|a, b| b.1[2].min(b.1[3]).total_cmp(&a.1[2].min(a.1[3])));
+            boxes.truncate(40);
+            let runs: Vec<Run> = boxes
+                .into_iter()
+                .filter_map(|(i, [x, y, w, h])| {
+                    let seg = segs.get(i as PdfPageTextSegmentIndex).ok()?;
+                    Some(Run { text: seg.text(), x, y, w, h })
                 })
                 .collect();
-            let (sheet, title) = sheets::detect(&runs, p.width().value, p.height().value);
+            let sheet = sheets::sheet_number(&runs, pw, ph);
             let label = p.label().map(str::trim).filter(|l| !l.is_empty() && *l != (page + 1).to_string());
-            Ok((json!({ "sheet": sheet, "title": title, "label": label }), all.into_bytes()))
+            Ok((json!({ "sheet": sheet, "label": label }), all.into_bytes()))
         }
         Request::Find { path, page, query } => {
             let p = cache.page(&path, page)?;
             let text = p.text().map_err(|e| format!("text: {e}"))?;
+            let xf = Xform::new(p);
             let mut rects = Vec::new();
             if !query.is_empty() {
                 let search = text
@@ -230,7 +267,7 @@ fn handle(cache: &mut Cache, req: Request) -> OpResult {
                     // One match can span several segments (line breaks): keep each.
                     let mut group = Vec::new();
                     for seg in segments.iter() {
-                        group.push(to_display(p, &seg.bounds()));
+                        group.push(xf.apply(&seg.bounds()));
                     }
                     rects.push(group);
                     if rects.len() >= 2000 {
