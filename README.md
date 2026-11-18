@@ -13,7 +13,14 @@ Built for people who only *view* plans (no markups, measuring or editing).
 - **Tabs** – open several files at once: multi-select in the Open dialog, drag-and-drop onto the
   window, or "Open with" / double-click a `.pdf` (a second launch adds tabs to the running window).
 - **Views** – continuous scroll, two-up, thumbnail grid.
-- **Zoom** – Ctrl+wheel or touchpad pinch zooms around the cursor; Ctrl + / Ctrl − / Ctrl 0
+- **Split screen** – Ctrl+H (or Ctrl+2) splits the window side by side; Ctrl+Shift+H flips to
+  top / bottom. Each pane shows any open file (click a tab to put it in the focused pane), with its
+  own zoom and position; drag the divider to resize, F6 switches panes.
+- **Sheet names** – the grid shows each sheet's number (e.g. `S-208 · 62`), and the page box takes
+  a sheet number (`S-208`, `sd7a`) as well as a page number. Names come from the PDF's bookmarks or
+  page labels when it has them, otherwise from the title block text (read in the background).
+- **Zoom & pan** – the wheel scrolls; Ctrl+wheel or touchpad pinch zooms around the cursor; drag
+  with the left mouse button (or middle button, in any view) to pan. Ctrl + / Ctrl − / Ctrl 0
   (fit width), Ctrl 1 (100 %).
 - **Deep search** – every page's text is indexed in the background after a file opens. Search the
   current file or all open files; the results list shows file, page and a snippet; hits are
@@ -27,6 +34,8 @@ Built for people who only *view* plans (no markups, measuring or editing).
 | Keys | Action |
 | --- | --- |
 | Ctrl+O | Open PDFs |
+| Ctrl+H or Ctrl+2 / Ctrl+Shift+H / F6 | Split on/off / flip orientation / switch pane |
+| Ctrl+G | Go to page or sheet number |
 | Ctrl+W / Ctrl+Tab | Close tab / next tab |
 | Ctrl+F, Enter / Shift+Enter, F3 | Search, next / previous hit |
 | Ctrl+E | Extract sheets |
@@ -35,8 +44,9 @@ Built for people who only *view* plans (no markups, measuring or editing).
 
 ## Download (Windows)
 
-Every push to `main` runs the **Windows build** GitHub Action. Open the latest run under
-*Actions → Windows build* and download the `EasyPeasyPDF-msi` artifact (zip containing the `.msi`).
+The **Windows build** GitHub Action runs only when started by hand: *Actions → Windows build →
+Run workflow* (branch `main`). When it finishes, download the `EasyPeasyPDF-msi` artifact from
+the run (a zip containing the `.msi`).
 The installer registers Easy Peasy PDF as an "Open with" handler for `.pdf`.
 
 ## Development

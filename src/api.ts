@@ -5,6 +5,8 @@ export interface DocInfo {
   path: string;
   name: string;
   pages: [number, number][]; // page sizes in points (rotation applied)
+  /** Sheet name per page (e.g. "S-208"), filled in as pages are indexed. Client-side. */
+  labels?: (string | null)[];
 }
 
 export interface Hit {
@@ -27,6 +29,7 @@ export type Match = [number, number, number, number][];
 
 export const api = {
   openDoc: (path: string) => invoke<DocInfo>('open_doc', { path }),
+  labels: (doc: number) => invoke<(string | null)[]>('labels', { doc }),
   closeDoc: (id: number) => invoke<void>('close_doc', { id }),
   search: (query: string, docs: number[]) => invoke<SearchResult>('search', { query, docs }),
   find: (doc: number, page: number, query: string) => invoke<Match[]>('find', { doc, page, query }),

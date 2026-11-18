@@ -99,6 +99,9 @@ pub fn run(args: &[String]) -> i32 {
         for rx in rxs {
             if let Ok(Ok(r)) = rx.await {
                 chars += r.body.len();
+                if std::env::var_os("EPP_LABELS").is_some() {
+                    println!("  sheet {:?} title {:?} label {:?}", r.data["sheet"], r.data["title"], r.data["label"]);
+                }
             }
         }
         println!("text index, all pages ({:.1} KB):                   {}", chars as f64 / 1e3, ms(t));

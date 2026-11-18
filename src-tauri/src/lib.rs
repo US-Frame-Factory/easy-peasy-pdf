@@ -1,6 +1,7 @@
 pub mod bench;
 pub mod pool;
 pub mod protocol;
+pub mod sheets;
 pub mod worker;
 
 use pool::{JobError, Pool, Prio};
@@ -25,6 +26,9 @@ struct Doc {
     pages: usize,
     text: RwLock<Vec<Option<PageText>>>,
     indexed: AtomicU64,
+    /// Sheet name per page: bookmark title, else PDF page label, else the
+    /// sheet number read from the title block.
+    labels: RwLock<Vec<Option<String>>>,
 }
 
 pub struct AppState {
@@ -108,6 +112,14 @@ async fn open_doc(app: tauri::AppHandle, state: tauri::State<'_, AppState>, path
     let reply = state.pool.run(Request::Info { path: path.clone() }, Prio::Interactive).await.map_err(|e| e.to_string())?;
     let pages = reply.data["pages"].clone();
     let n = pages.as_array().map(|a| a.len()).unwrap_or(0);
+    let mut labels: Vec<Option<String>> = vec![None; n];
+    for m in reply.data["bookmarks"].as_array().into_iter().flatten() {
+        if let (Some(p), Some(t)) = (m[0].as_u64(), m[1].as_str()) {
+            if let Some(slot) = labels.get_mut(p as usize) {
+                slot.get_or_insert_with(|| t.chars().take(80).collect());
+            }
+        }
+    }
     let id = state.next_id.fetch_add(1, Ordering::Relaxed);
     let doc = Arc::new(Doc {
         path: path.clone(),
@@ -115,6 +127,7 @@ async fn open_doc(app: tauri::AppHandle, state: tauri::State<'_, AppState>, path
         pages: n,
         text: RwLock::new((0..n).map(|_| None).collect()),
         indexed: AtomicU64::new(0),
+        labels: RwLock::new(labels),
     });
     state.docs.write().unwrap().insert(id, doc.clone());
 
@@ -129,7 +142,13 @@ async fn open_doc(app: tauri::AppHandle, state: tauri::State<'_, AppState>, path
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
             let text = match rx.await {
-                Ok(Ok(r)) => String::from_utf8_lossy(&r.body).replace(['\r', '\n', '\u{2}'], " "),
+                Ok(Ok(r)) => {
+                    let pdf_label = r.data["label"].as_str().filter(|l| l.parse::<u64>().is_err());
+                    if let Some(l) = pdf_label.or(r.data["sheet"].as_str()) {
+                        doc.labels.write().unwrap()[page].get_or_insert_with(|| l.to_string());
+                    }
+                    String::from_utf8_lossy(&r.body).replace(['\r', '\n', '\u{2}'], " ")
+                }
                 Ok(Err(JobError::Cancelled)) | Err(_) => return,
                 Ok(Err(_)) => String::new(),
             };
@@ -153,6 +172,11 @@ async fn open_doc(app: tauri::AppHandle, state: tauri::State<'_, AppState>, path
 
     let name = Path::new(&path).file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| path.clone());
     Ok(DocInfo { id, path, name, pages })
+}
+
+#[tauri::command]
+fn labels(state: tauri::State<'_, AppState>, doc: u64) -> Result<Vec<Option<String>>, String> {
+    Ok(state.doc(doc)?.labels.read().unwrap().clone())
 }
 
 #[tauri::command]
@@ -366,6 +390,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             open_doc,
             close_doc,
+            labels,
             search,
             find,
             extract,

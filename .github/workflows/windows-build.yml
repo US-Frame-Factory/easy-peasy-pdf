@@ -1,9 +1,7 @@
 name: Windows build
 
+# Runs only when started by hand: Actions tab -> "Windows build" -> "Run workflow".
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
 
 jobs:

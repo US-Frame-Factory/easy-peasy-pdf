@@ -21,17 +21,22 @@
       <button id="btn-zoom-in" title="Zoom in (Ctrl +)">+</button>
       <button id="btn-fit" title="Fit width (Ctrl 0)">Fit width</button>
       <span class="sep"></span>
-      <input id="page-input" type="text" inputmode="numeric" title="Go to page" />
+      <div class="seg" id="split-modes">
+        <button data-split="off" title="Single view">Single</button>
+        <button data-split="v" title="Split side by side (Ctrl+H or Ctrl+2)">Split ◫</button>
+        <button data-split="h" title="Split top / bottom (Ctrl+Shift+H flips)">Split ⊟</button>
+      </div>
+      <span class="sep"></span>
+      <input id="page-input" type="text" title="Go to page number or sheet, e.g. 62 or S-208 (Ctrl+G)" />
       <span id="page-count" class="label">/ 0</span>
+      <span id="sheet-label" class="sheet"></span>
       <span class="spacer"></span>
       <button id="btn-extract" title="Extract sheets to a new PDF (Ctrl+E)">Extract…</button>
       <button id="btn-search" title="Search (Ctrl+F)">Search</button>
     </header>
     <nav id="tabs"></nav>
     <main id="main">
-      <div id="viewer" tabindex="0">
-        <div id="content"></div>
-      </div>
+      <div id="panes"></div>
       <div id="empty">
         <div>
           <h1>Easy Peasy PDF</h1>

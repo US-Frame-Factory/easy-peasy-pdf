@@ -2,6 +2,7 @@
 //! from stdin one at a time. If PDFium crashes or hangs on a bad page, only
 //! this process dies; the app's pool kills/respawns it.
 
+use crate::sheets::{self, Run};
 use crate::protocol::{bmp_from_bgra, tile_geometry, write_frame, Header, Request};
 use pdfium_render::prelude::*;
 use serde_json::json;
@@ -163,7 +164,18 @@ fn handle(cache: &mut Cache, req: Request) -> OpResult {
                 let r = pages.page_size(i).map_err(|e| format!("page size {}: {e}", i + 1))?;
                 sizes.push([r.width().value, r.height().value]);
             }
-            Ok((json!({ "pages": sizes }), Vec::new()))
+            // Bookmarks that point at pages often name the sheets.
+            let mut marks: Vec<(u32, String)> = Vec::new();
+            // (Capped: a malformed outline can loop forever.)
+            for b in doc.bookmarks().iter().take(20000) {
+                let (Some(t), Some(d)) = (b.title(), b.destination()) else { continue };
+                if let Ok(i) = d.page_index() {
+                    if !marks.iter().any(|(p, _)| *p == i as u32) && !t.trim().is_empty() {
+                        marks.push((i as u32, t.trim().to_string()));
+                    }
+                }
+            }
+            Ok((json!({ "pages": sizes, "bookmarks": marks }), Vec::new()))
         }
         Request::Tile { path, page, scale, tx, ty } => {
             if !(scale.is_finite() && scale > 0.0 && scale <= 64.0) {
@@ -190,8 +202,21 @@ fn handle(cache: &mut Cache, req: Request) -> OpResult {
         }
         Request::Text { path, page } => {
             let p = cache.page(&path, page)?;
-            let text = p.text().map_err(|e| format!("text: {e}"))?.all();
-            Ok((json!(null), text.into_bytes()))
+            let text = p.text().map_err(|e| format!("text: {e}"))?;
+            let all = text.all();
+            // Sheet number/title from the title block, plus the PDF page label if it's
+            // more than just the page number.
+            let runs: Vec<Run> = text
+                .segments()
+                .iter()
+                .map(|seg| {
+                    let [x, y, w, h] = to_display(p, &seg.bounds());
+                    Run { text: seg.text(), x, y, w, h }
+                })
+                .collect();
+            let (sheet, title) = sheets::detect(&runs, p.width().value, p.height().value);
+            let label = p.label().map(str::trim).filter(|l| !l.is_empty() && *l != (page + 1).to_string());
+            Ok((json!({ "sheet": sheet, "title": title, "label": label }), all.into_bytes()))
         }
         Request::Find { path, page, query } => {
             let p = cache.page(&path, page)?;

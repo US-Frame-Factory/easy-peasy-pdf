@@ -90,15 +90,88 @@ export class Viewer {
   private findCache = new Map<string, Promise<Match[]>>();
   private pendingJump: { page: number; index: number } | null = null;
 
+  private ro: ResizeObserver;
+  private pan: { id: number; x: number; y: number; left: number; top: number; moved: boolean } | null = null;
+
   constructor(private scroller: HTMLElement, private content: HTMLElement, private ev: ViewerEvents) {
     scroller.addEventListener('scroll', () => this.schedule(), { passive: true });
-    new ResizeObserver(() => this.onResize()).observe(scroller);
+    this.ro = new ResizeObserver(() => this.onResize());
+    this.ro.observe(scroller);
+    this.setupPan();
     scroller.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
     content.addEventListener('click', (e) => this.onGridClick(e));
     content.addEventListener('dblclick', (e) => {
       const p = this.pageFromEvent(e);
       if (p !== null && this.doc?.mode === 'grid') this.ev.onOpenPage(p);
     });
+  }
+
+  destroy() {
+    this.ro.disconnect();
+    this.clearViews();
+    this.doc = null;
+  }
+
+  // Drag with the left button (scroll / two-up) or middle button (any view) to pan.
+  // The wheel scrolls; Ctrl+wheel zooms.
+  private setupPan() {
+    const sc = this.scroller;
+    sc.addEventListener('pointerdown', (e) => {
+      const d = this.doc;
+      if (!d || e.pointerType === 'touch') return;
+      const left = e.button === 0 && d.mode !== 'grid';
+      const middle = e.button === 1;
+      if (!left && !middle) return;
+      // Leave the scrollbars alone.
+      const r = sc.getBoundingClientRect();
+      if (e.clientX - r.left >= sc.clientWidth || e.clientY - r.top >= sc.clientHeight) return;
+      e.preventDefault(); // no text/image drag, no middle-click autoscroll
+      this.pan = { id: e.pointerId, x: e.clientX, y: e.clientY, left: sc.scrollLeft, top: sc.scrollTop, moved: false };
+      sc.setPointerCapture(e.pointerId);
+      sc.classList.add('panning');
+      sc.focus({ preventScroll: true });
+    });
+    sc.addEventListener('pointermove', (e) => {
+      const p = this.pan;
+      if (!p || e.pointerId !== p.id) return;
+      const dx = e.clientX - p.x;
+      const dy = e.clientY - p.y;
+      if (!p.moved && Math.abs(dx) + Math.abs(dy) < 3) return;
+      p.moved = true;
+      sc.scrollLeft = p.left - dx;
+      sc.scrollTop = p.top - dy;
+    });
+    const end = (e: PointerEvent) => {
+      if (!this.pan || e.pointerId !== this.pan.id) return;
+      this.pan = null;
+      sc.classList.remove('panning');
+      if (sc.hasPointerCapture(e.pointerId)) sc.releasePointerCapture(e.pointerId);
+    };
+    sc.addEventListener('pointerup', end);
+    sc.addEventListener('pointercancel', end);
+    sc.addEventListener('auxclick', (e) => e.button === 1 && e.preventDefault());
+  }
+
+  /** Sheet names arrived (or changed): refresh the grid labels. */
+  refreshLabels() {
+    for (const v of this.views.values()) {
+      const lbl = v.el.querySelector<HTMLElement>('.lbl');
+      if (lbl) this.fillLabel(lbl, v.page);
+    }
+  }
+
+  private fillLabel(lbl: HTMLElement, page: number) {
+    const name = this.doc?.info.labels?.[page];
+    lbl.textContent = '';
+    if (name) {
+      const b = document.createElement('b');
+      b.textContent = name;
+      lbl.append(b, ` · ${page + 1}`);
+      lbl.title = `${name} (page ${page + 1})`;
+    } else {
+      lbl.textContent = String(page + 1);
+      lbl.title = `Page ${page + 1}`;
+    }
   }
 
   // ---------- public API ----------
@@ -513,7 +586,7 @@ export class Viewer {
       if (d.selected.has(page)) el.classList.add('sel');
       const lbl = document.createElement('div');
       lbl.className = 'lbl';
-      lbl.textContent = String(page + 1);
+      this.fillLabel(lbl, page);
       el.appendChild(lbl);
     }
     const ph = document.createElement('img');
