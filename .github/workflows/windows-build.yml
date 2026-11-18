@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version (e.g. 0.2.0). Leave empty for 0.1.<run number>."
+        description: "Version (e.g. 0.2.0). Leave empty for 0.2.<run number>."
         required: false
         default: ""
       notes:

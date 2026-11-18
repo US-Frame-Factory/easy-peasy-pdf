@@ -57,7 +57,7 @@ Updates are published from GitHub Releases and are signed: the app only installs
 with the project's update key (its public half is in `src-tauri/tauri.conf.json`).
 
 **To ship a new version:** Actions → *Windows build* → *Run workflow*. Optionally type a version
-(e.g. `0.2.0`; empty = `0.1.<run number>`) and release notes. The workflow builds the installers and
+(e.g. `0.2.0`; empty = `<major>.<minor>.<run number>` from tauri.conf.json) and release notes. The workflow builds the installers and
 publishes a release; installed copies offer the update within a few hours (or on next start).
 
 **One-time setup:** add the private update key as repository secrets
