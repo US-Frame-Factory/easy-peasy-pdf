@@ -35,6 +35,43 @@
       <button id="btn-search" title="Search (Ctrl+F)">Search</button>
       <button id="btn-version" class="ghost" title="Check for updates">v…</button>
     </header>
+    <div id="tools">
+      <div class="seg" id="tool-buttons">
+        <button data-tool="pan" title="Pan: drag to move around, click a markup to select it (Esc)">✋ Pan</button>
+        <button data-tool="select-text" title="Select text: drag a box around text, then Ctrl+C">𝐈 Select text</button>
+        <button data-tool="snapshot" title="Snapshot: drag a box to copy that area as an image">⬚ Snapshot</button>
+      </div>
+      <div class="seg" id="markup-buttons">
+        <button data-tool="pen" title="Pen: draw freehand">✎ Pen</button>
+        <button data-tool="highlight" title="Highlighter">▬ Highlight</button>
+        <button data-tool="rect" title="Rectangle (Shift = square)">▭ Rect</button>
+        <button data-tool="ellipse" title="Ellipse (Shift = circle)">◯ Ellipse</button>
+        <button data-tool="text" title="Text: click to place a text box, type, Esc when done">A Text</button>
+        <button data-tool="callout" title="Callout: drag from the point to where the text goes">↘ Callout</button>
+      </div>
+      <div class="seg">
+        <button data-tool="measure" title="Measure length (Shift = 0/45/90°)">📏 Measure</button>
+        <button id="btn-scale" title="Set this page's drawing scale">Scale: not set</button>
+      </div>
+      <div class="pop-wrap">
+        <button id="btn-style" title="Colour, line width, text size, opacity, number format">Style ▾</button>
+        <div id="style-pop" hidden>
+          <div class="pop-title"><span id="style-for">Style</span><button id="style-close" class="x" title="Close">×</button></div>
+          <div class="grid2">
+            <label>Line colour <input id="st-color" type="color" /></label>
+            <label>Text colour <input id="st-textColor" type="color" /></label>
+            <label>Line width <span class="rng"><input id="st-width" type="range" min="0" max="24" step="0.5" /><input id="st-width-n" type="number" min="0" max="72" step="0.5" /></span></label>
+            <label>Text size <span class="rng"><input id="st-size" type="range" min="6" max="96" step="1" /><input id="st-size-n" type="number" min="4" max="300" step="1" /></span></label>
+            <label>Opacity % <span class="rng"><input id="st-opacity" type="range" min="5" max="100" step="5" /><input id="st-opacity-n" type="number" min="5" max="100" step="5" /></span></label>
+            <label>Number format <select id="st-format"></select></label>
+          </div>
+        </div>
+      </div>
+      <span class="spacer"></span>
+      <button id="btn-undo" title="Undo (Ctrl+Z)">↶</button>
+      <button id="btn-redo" title="Redo (Ctrl+Y)">↷</button>
+      <button id="btn-save" class="primary" title="Save markups into the PDF (Ctrl+S). Ctrl+Shift+S = Save As">Save</button>
+    </div>
     <nav id="tabs"></nav>
     <main id="main">
       <div id="panes"></div>
@@ -69,6 +106,52 @@
         <div class="buttons">
           <button value="cancel" formnovalidate>Cancel</button>
           <button id="extract-go" value="go" class="primary">Save As…</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="scale-dialog">
+      <form method="dialog">
+        <h2>Page scale</h2>
+        <p class="muted" id="scale-info"></p>
+        <label for="scale-preset">Drawing scale</label>
+        <select id="scale-preset"></select>
+        <div class="scope">
+          <label><input type="radio" name="scale-apply" value="page" /> This page</label>
+          <label><input type="radio" name="scale-apply" value="all" checked /> All pages</label>
+        </div>
+        <p class="muted">Or calibrate: drag along a known dimension on the sheet.</p>
+        <div class="buttons">
+          <button id="scale-calibrate" value="calibrate" formnovalidate>Calibrate…</button>
+          <span class="spacer"></span>
+          <button value="cancel" formnovalidate>Cancel</button>
+          <button id="scale-ok" value="ok" class="primary">OK</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="calib-dialog">
+      <form method="dialog">
+        <h2>Calibrate</h2>
+        <label for="calib-length">What is the real length of the line you drew?</label>
+        <input id="calib-length" type="text" placeholder="e.g. 17'6 1/2&quot; or 210&quot; or 5.3m" autocomplete="off" spellcheck="false" />
+        <div class="scope">
+          <label><input type="radio" name="calib-apply" value="page" /> This page</label>
+          <label><input type="radio" name="calib-apply" value="all" checked /> All pages</label>
+        </div>
+        <p id="calib-error" class="error"></p>
+        <div class="buttons">
+          <button value="cancel" formnovalidate>Cancel</button>
+          <button id="calib-ok" value="ok" class="primary">Set scale</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="unsaved-dialog">
+      <form method="dialog">
+        <h2>Unsaved markups</h2>
+        <p id="unsaved-text"></p>
+        <div class="buttons">
+          <button value="cancel" formnovalidate>Cancel</button>
+          <button value="discard" formnovalidate>Don't save</button>
+          <button value="save" class="primary">Save</button>
         </div>
       </form>
     </dialog>

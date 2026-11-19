@@ -1,4 +1,5 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import type { DocMarks } from './markup';
 
 export interface DocInfo {
   id: number;
@@ -7,6 +8,8 @@ export interface DocInfo {
   pages: [number, number][]; // page sizes in points (rotation applied)
   /** Sheet name per page (e.g. "S-208"), filled in as pages are indexed. Client-side. */
   labels?: (string | null)[];
+  /** Unsaved markups. Client-side. */
+  marks?: DocMarks;
 }
 
 export interface Hit {
@@ -35,6 +38,16 @@ export const api = {
   find: (doc: number, page: number, query: string) => invoke<Match[]>('find', { doc, page, query }),
   extract: (doc: number, pages: number[], dest: string) => invoke<number>('extract', { doc, pages, dest }),
   initialFiles: () => invoke<string[]>('initial_files'),
+  selectText: (doc: number, page: number, rect: [number, number, number, number]) =>
+    invoke<{ text: string; rects: [number, number, number, number][] }>('select_text', { doc, page, rect }),
+  /** u32 LE width, u32 LE height, then RGBA. */
+  renderRegion: (doc: number, page: number, scale: number, rect: [number, number, number, number]) =>
+    invoke<ArrayBuffer>('render_region', { doc, page, scale, rect }),
+  copyText: (text: string) => invoke<void>('copy_text', { text }),
+  copyImage: (rgba: Uint8Array, w: number, h: number) =>
+    invoke<void>('copy_image', rgba, { headers: { 'x-width': String(w), 'x-height': String(h) } }),
+  /** Returns the path written. `dest` omitted = into the open file. */
+  saveMarkups: (doc: number, markups: unknown[], dest?: string) => invoke<string>('save_markups', { doc, markups, dest }),
   crashAWorker: () => invoke<void>('crash_a_worker'),
 };
 

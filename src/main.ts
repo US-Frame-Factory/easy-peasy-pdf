@@ -3,7 +3,10 @@ import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { api, DocInfo, Hit } from './api';
 import { formatRanges, parseRanges } from './ranges';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { initUpdates } from './updates';
+import { isKind, KIND_NAMES, Markups, marksOf, measureText, Tool } from './markup';
+import { FORMATS, getScale, NumberFormat, parseLength, PRESETS, scaleLabel, setScale } from './measure';
 import { DocState, Mode, Viewer } from './viewer';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -25,6 +28,21 @@ function toast(msg: string, err = false, ms = 4000) {
 // scroll, mode, selection) per document, so both panes can show the same file.
 
 const docs: DocInfo[] = [];
+
+const marks = new Markups({
+  toast: (m, err) => toast(m, err),
+  changed: () => {
+    renderTabs();
+    updateToolbar();
+  },
+  toolChanged: () => updateToolbar(),
+  needScale: (info, page) => askScale(info, page, 'Set the drawing scale before measuring.'),
+  calibrated: (info, page, len) => askCalibration(info, page, len),
+  selectionChanged: () => {
+    updateToolbar();
+    renderStylePop();
+  },
+});
 
 class Pane {
   el: HTMLDivElement;
@@ -61,7 +79,9 @@ class Pane {
         pane.viewer.scrollToPage(page);
         updateToolbar();
       },
+      onPageBuilt: (page, el) => marks.decorate(pane.viewer, page, el),
     });
+    marks.attach(this.viewer, this.scroller);
   }
 
   stateFor(info: DocInfo, like?: DocState | null): DocState {
@@ -114,6 +134,7 @@ class Pane {
   }
 
   destroy() {
+    marks.detach(this.viewer);
     this.viewer.destroy();
     this.el.remove();
   }
@@ -216,6 +237,8 @@ function updatePageBox() {
   const lbl = d?.info.labels?.[page];
   $('sheet-label').textContent = lbl ?? '';
   $('sheet-label').title = lbl ? `Sheet ${lbl}` : '';
+  const sc = d ? getScale(d.info.path, page) : null;
+  $('btn-scale').textContent = sc ? `Scale: ${scaleLabel(sc)}` : 'Scale: not set';
 }
 
 function updateToolbar() {
@@ -235,6 +258,18 @@ function updateToolbar() {
   const n = d?.selected.size ?? 0;
   $('btn-extract').textContent = n > 0 ? `Extract ${n}…` : 'Extract…';
   for (const id of ['btn-zoom-out', 'btn-zoom-in', 'btn-fit', 'btn-extract']) $<HTMLButtonElement>(id).disabled = !d;
+  for (const b of $('tools').querySelectorAll<HTMLButtonElement>('button[data-tool]')) {
+    b.classList.toggle('on', b.dataset.tool === marks.tool);
+    b.disabled = !d;
+  }
+  document.body.dataset.tool = marks.tool;
+  const mk = d ? marksOf(d.info) : null;
+  $<HTMLButtonElement>('btn-undo').disabled = !mk?.undo.length;
+  $<HTMLButtonElement>('btn-redo').disabled = !mk?.redo.length;
+  $<HTMLButtonElement>('btn-save').disabled = !d;
+  $('btn-save').textContent = mk?.dirty && mk.markups.length ? `Save (${mk.markups.length})` : 'Save';
+  $<HTMLButtonElement>('btn-scale').disabled = !d;
+  $<HTMLButtonElement>('btn-style').disabled = !d;
   pageInput.disabled = !d;
   updatePageBox();
 }
@@ -252,19 +287,21 @@ function renderTabs() {
     t.title = d.path;
     const name = document.createElement('span');
     name.className = 'name';
-    name.textContent = d.name;
+    const dirty = !!(d.marks?.dirty && d.marks.markups.length);
+    name.textContent = dirty ? `● ${d.name}` : d.name;
+    if (dirty) t.title = `${d.path}\nUnsaved markups (Ctrl+S to save)`;
     const x = document.createElement('button');
     x.className = 'x';
     x.textContent = '×';
     x.title = 'Close (Ctrl+W)';
     x.onclick = (e) => {
       e.stopPropagation();
-      closeDoc(d);
+      requestClose(d);
     };
     t.onmousedown = (e) => {
       if (e.button === 1) {
         e.preventDefault();
-        closeDoc(d);
+        requestClose(d);
       }
     };
     t.onclick = () => activate(d);
@@ -637,6 +674,252 @@ pageInput.addEventListener('keydown', (e) => {
 pageInput.addEventListener('focus', () => pageInput.select());
 pageInput.addEventListener('blur', () => updatePageBox());
 
+// ---------- markups: save, close guard ----------
+
+const unsavedCount = (d: DocInfo) => (d.marks?.dirty ? d.marks.markups.length : 0);
+
+/** Writes the markups into the PDF (or a copy) and reloads it in place. */
+async function saveDoc(d: DocInfo, saveAs = false): Promise<boolean> {
+  marks.commitEdit();
+  const mk = marksOf(d);
+  if (!mk.markups.length && !saveAs) {
+    toast('No new markups to save.');
+    return true;
+  }
+  let dest: string | undefined;
+  if (saveAs) {
+    const picked = await saveDialog({
+      defaultPath: d.path.replace(/\.pdf$/i, '') + ' (marked up).pdf',
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    });
+    if (!picked) return false;
+    dest = /\.pdf$/i.test(picked) ? picked : `${picked}.pdf`;
+  }
+  const payload = mk.markups.map((m) => ({ ...m, text: m.kind === 'measure' ? measureText(m) : m.text }));
+  toast(`Saving ${payload.length} markup${payload.length === 1 ? '' : 's'}…`, false, 1500);
+  try {
+    const written = await api.saveMarkups(d.id, payload, dest);
+    const info = await api.openDoc(written);
+    info.labels = d.labels?.length === info.pages.length ? d.labels : new Array(info.pages.length).fill(null);
+    marks.clearSaved(d);
+    replaceDoc(d, info);
+    scheduleLabels(info);
+    toast(`Saved ${payload.length} markup${payload.length === 1 ? '' : 's'} into ${info.name}`);
+    return true;
+  } catch (err) {
+    toast(`Save failed: ${err}`, true);
+    return false;
+  }
+}
+
+/** Swap a document for its re-opened (saved) version, keeping each pane's view. */
+function replaceDoc(old: DocInfo, info: DocInfo) {
+  const i = docs.indexOf(old);
+  if (i >= 0) docs[i] = info;
+  else docs.push(info);
+  for (const p of panes) {
+    const st = p.views.get(old.id);
+    p.views.delete(old.id);
+    if (st) {
+      st.info = info;
+      p.views.set(info.id, st);
+    }
+    if (p.current?.info === info || st === p.current) {
+      p.current = null;
+      p.viewer.doc = null; // keep the saved scroll position in `st`
+      p.show(info, st);
+    }
+  }
+  api.closeDoc(old.id).catch(() => {});
+  renderTabs();
+  updateToolbar();
+  if (searchOpen()) runSearch(true);
+}
+
+const unsavedDlg = $<HTMLDialogElement>('unsaved-dialog');
+
+function askUnsaved(text: string): Promise<'save' | 'discard' | 'cancel'> {
+  $('unsaved-text').textContent = text;
+  unsavedDlg.returnValue = 'cancel';
+  unsavedDlg.showModal();
+  return new Promise((resolve) => {
+    unsavedDlg.addEventListener('close', () => resolve((unsavedDlg.returnValue || 'cancel') as 'save' | 'discard' | 'cancel'), { once: true });
+  });
+}
+
+async function requestClose(d: DocInfo) {
+  const n = unsavedCount(d);
+  if (n) {
+    const r = await askUnsaved(`${d.name} has ${n} unsaved markup${n === 1 ? '' : 's'}. Save them into the PDF?`);
+    if (r === 'cancel') return;
+    if (r === 'save' && !(await saveDoc(d))) return;
+    // after a save the doc was replaced; close whatever now holds its path
+    d = docs.find((x) => x.path === d.path) ?? d;
+  }
+  closeDoc(d);
+}
+
+getCurrentWindow()
+  .onCloseRequested(async (e) => {
+    const dirty = docs.filter((d) => unsavedCount(d) > 0);
+    if (!dirty.length) return;
+    e.preventDefault();
+    const total = dirty.reduce((n, d) => n + unsavedCount(d), 0);
+    const r = await askUnsaved(
+      `${total} unsaved markup${total === 1 ? '' : 's'} in ${dirty.map((d) => d.name).join(', ')}. Save before closing?`,
+    );
+    if (r === 'cancel') return;
+    if (r === 'save') {
+      for (const d of dirty) if (!(await saveDoc(d))) return;
+    }
+    await getCurrentWindow().destroy();
+  })
+  .catch(() => {});
+
+// ---------- page scale & calibration ----------
+
+const scaleDlg = $<HTMLDialogElement>('scale-dialog');
+const scaleSel = $<HTMLSelectElement>('scale-preset');
+for (const p of PRESETS) scaleSel.add(new Option(p.label, String(p.inPerPt)));
+
+function askScale(info: DocInfo, page: number, note = ''): Promise<number | null> {
+  const cur = getScale(info.path, page);
+  $('scale-info').textContent = `${note ? note + ' ' : ''}Page ${page + 1}${info.labels?.[page] ? ` (${info.labels[page]})` : ''} — current: ${cur ? scaleLabel(cur) : 'not set'}.`;
+  const idx = cur ? PRESETS.findIndex((p) => Math.abs(p.inPerPt - cur) / cur < 0.001) : PRESETS.findIndex((p) => p.label.startsWith('1/8"'));
+  scaleSel.selectedIndex = Math.max(0, idx);
+  scaleDlg.returnValue = 'cancel';
+  scaleDlg.showModal();
+  return new Promise((resolve) => {
+    scaleDlg.addEventListener(
+      'close',
+      () => {
+        const v = scaleDlg.returnValue;
+        if (v === 'ok') {
+          const s = Number(scaleSel.value);
+          const all = (document.querySelector<HTMLInputElement>('input[name=scale-apply]:checked')?.value ?? 'all') === 'all';
+          setScale(info.path, all ? 'all' : page, s);
+          updatePageBox();
+          resolve(s);
+        } else {
+          if (v === 'calibrate') {
+            marks.setTool('calibrate');
+            toast('Calibrate: drag along a dimension you know (Shift keeps it straight).', false);
+          }
+          resolve(null);
+        }
+      },
+      { once: true },
+    );
+  });
+}
+
+const calibDlg = $<HTMLDialogElement>('calib-dialog');
+const calibInput = $<HTMLInputElement>('calib-length');
+let calibPending: { info: DocInfo; page: number; len: number } | null = null;
+
+function askCalibration(info: DocInfo, page: number, len: number) {
+  calibPending = { info, page, len };
+  $('calib-error').textContent = '';
+  calibInput.value = '';
+  calibDlg.showModal();
+  calibInput.focus();
+}
+
+$('calib-ok').addEventListener('click', (e) => {
+  e.preventDefault();
+  const c = calibPending;
+  if (!c) return calibDlg.close();
+  const inches = parseLength(calibInput.value);
+  if (!inches || inches <= 0) {
+    $('calib-error').textContent = 'Type a length, e.g. 17\'6 1/2" or 210" or 5.3m';
+    return;
+  }
+  const all = (document.querySelector<HTMLInputElement>('input[name=calib-apply]:checked')?.value ?? 'all') === 'all';
+  const s = inches / c.len;
+  setScale(c.info.path, all ? 'all' : c.page, s);
+  calibPending = null;
+  calibDlg.close();
+  marks.setTool('measure');
+  updatePageBox();
+  toast(`Scale set: ${scaleLabel(s)}. Measure tool is on.`);
+});
+calibDlg.addEventListener('close', () => {
+  if (calibPending) marks.setTool('pan');
+  calibPending = null;
+});
+
+$('btn-scale').onclick = () => {
+  const d = active();
+  if (d) askScale(d.info, viewer().currentPage());
+};
+
+// ---------- style panel ----------
+
+const stylePop = $('style-pop');
+const fmtSel = $<HTMLSelectElement>('st-format');
+for (const f of FORMATS) fmtSel.add(new Option(f.example, f.id));
+
+function renderStylePop() {
+  if (stylePop.hidden) return;
+  const cur = marks.currentStyle();
+  const set = (id: string, v: string | number) => ($<HTMLInputElement>(id).value = String(v));
+  for (const el of stylePop.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select')) el.disabled = !cur;
+  if (!cur) {
+    $('style-for').textContent = 'Pick a markup tool or select a markup';
+    return;
+  }
+  const s = cur.style;
+  $('style-for').textContent = `${KIND_NAMES[cur.kind]}${marks.selected ? ' (selected)' : ''}`;
+  set('st-color', s.color);
+  set('st-textColor', s.textColor);
+  set('st-width', s.width);
+  set('st-width-n', s.width);
+  set('st-size', s.size);
+  set('st-size-n', s.size);
+  set('st-opacity', Math.round(s.opacity * 100));
+  set('st-opacity-n', Math.round(s.opacity * 100));
+  fmtSel.value = s.format;
+}
+
+$('btn-style').onclick = () => {
+  stylePop.hidden = !stylePop.hidden;
+  renderStylePop();
+};
+$('style-close').onclick = () => (stylePop.hidden = true);
+const styleInput = (id: string, apply: (v: string) => void) => {
+  const el = $<HTMLInputElement>(id);
+  el.addEventListener('input', () => {
+    apply(el.value);
+    renderStylePop();
+  });
+};
+styleInput('st-color', (v) => marks.setStyle({ color: v }));
+styleInput('st-textColor', (v) => marks.setStyle({ textColor: v }));
+for (const k of ['width', 'size'] as const) {
+  styleInput(`st-${k}`, (v) => marks.setStyle({ [k]: Number(v) }));
+  styleInput(`st-${k}-n`, (v) => Number(v) >= 0 && marks.setStyle({ [k]: Number(v) }));
+}
+styleInput('st-opacity', (v) => marks.setStyle({ opacity: Number(v) / 100 }));
+styleInput('st-opacity-n', (v) => Number(v) > 0 && marks.setStyle({ opacity: Math.min(100, Number(v)) / 100 }));
+fmtSel.addEventListener('change', () => {
+  marks.setStyle({ format: fmtSel.value as NumberFormat });
+  renderStylePop();
+});
+
+// ---------- tool bar ----------
+
+for (const b of $('tools').querySelectorAll<HTMLButtonElement>('button[data-tool]')) {
+  b.onclick = () => {
+    marks.setTool(b.dataset.tool as Tool);
+    if (isKind(marks.tool) && active()?.mode === 'grid') viewer().setMode('scroll');
+    renderStylePop();
+    focused.scroller.focus({ preventScroll: true });
+  };
+}
+$('btn-undo').onclick = () => active() && marks.undo(active()!.info);
+$('btn-redo').onclick = () => active() && marks.redo(active()!.info);
+$('btn-save').onclick = () => active() && saveDoc(active()!.info);
+
 // ---------- keyboard ----------
 
 window.addEventListener('keydown', (e) => {
@@ -647,9 +930,26 @@ window.addEventListener('keydown', (e) => {
   if (mod && key === 'o') {
     e.preventDefault();
     openWithDialog();
+  } else if (mod && key === 's') {
+    e.preventDefault();
+    if (d) saveDoc(d.info, e.shiftKey);
+  } else if (mod && (key === 'z' || key === 'y') && !inField) {
+    e.preventDefault();
+    if (d) (key === 'y' || e.shiftKey ? marks.redo : marks.undo).call(marks, d.info);
+  } else if (mod && key === 'c' && !inField && marks.textSel) {
+    e.preventDefault();
+    marks.copySelection();
+  } else if ((e.key === 'Delete' || e.key === 'Backspace') && !inField && marks.selected) {
+    e.preventDefault();
+    marks.deleteSelected();
+  } else if (e.key === ' ' && !inField) {
+    // Hold Space to pan with any tool.
+    e.preventDefault();
+    marks.spaceDown = true;
+    document.body.classList.add('space-pan');
   } else if (mod && key === 'w') {
     e.preventDefault();
-    if (d) closeDoc(d.info);
+    if (d) requestClose(d.info);
   } else if (mod && e.key === 'Tab') {
     e.preventDefault();
     const cur = d?.info;
@@ -693,14 +993,30 @@ window.addEventListener('keydown', (e) => {
   } else if (e.key === 'F3') {
     e.preventDefault();
     gotoHit(e.shiftKey ? curHit - 1 : curHit + 1);
-  } else if (e.key === 'Escape' && !inField && d?.selected.size) {
-    d.selected.clear();
-    viewer().refreshSelection();
+  } else if (e.key === 'Escape' && !inField) {
+    if (d?.mode === 'grid' && d.selected.size) {
+      d.selected.clear();
+      viewer().refreshSelection();
+    } else {
+      stylePop.hidden = true;
+      marks.escape();
+    }
   } else if (mod && e.shiftKey && e.altKey && key === 'k') {
     // Hidden: kill a render worker to demonstrate crash recovery.
     api.crashAWorker();
     toast('Killed a render worker (it will be restarted).');
   }
+});
+
+window.addEventListener('keyup', (e) => {
+  if (e.key === ' ') {
+    marks.spaceDown = false;
+    document.body.classList.remove('space-pan');
+  }
+});
+window.addEventListener('blur', () => {
+  marks.spaceDown = false;
+  document.body.classList.remove('space-pan');
 });
 
 // Block the webview's own pinch/ctrl+wheel page zoom everywhere (the viewer handles it).

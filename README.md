@@ -1,7 +1,7 @@
 # Easy Peasy PDF
 
-A minimal, fast, crash-resistant desktop PDF viewer for big construction plan sets.
-Built for people who only *view* plans (no markups, measuring or editing).
+A minimal, fast, crash-resistant desktop PDF viewer for big construction plan sets, with the
+everyday markup and measuring tools (no editing of the drawings themselves).
 
 ## What it does
 
@@ -29,6 +29,20 @@ Built for people who only *view* plans (no markups, measuring or editing).
   range like `1-3, 7`, then **Save As…**. The new PDF is made by copying the original pages, so the
   sheets stay vector (not images).
 
+- **Select text** – drag a box around text, Ctrl+C copies it.
+- **Snapshot** – drag a box to copy that area (with any markups) to the clipboard as an image.
+- **Markups** – pen, highlighter, rectangle, ellipse, text box and callout (arrow + text). Style
+  panel: line / text colour, line width, text size, opacity. Pan tool: click a markup to select,
+  drag to move, Delete to remove, double-click a text box to edit. Ctrl+Z / Ctrl+Y undo / redo.
+- **Measure** – set the page scale from presets (1/8" = 1'-0", 1" = 20', …) or calibrate by
+  dragging along a known dimension; then drag to measure. Number formats: 148.1in, 148⅛in,
+  12.34ft, 12⅜ft, 12'4.1", 12'4⅛". Shift keeps lines at 0/45/90°. Scales are remembered per file.
+- **Save** – Ctrl+S writes the markups into the PDF as standard annotations (Square, Circle, Ink,
+  FreeText, Line) that Bluebeam and Acrobat show and can edit; Ctrl+Shift+S saves a copy. It's an
+  *incremental* save: the original bytes are kept and only the new annotations and their pages are
+  appended, so stamped/digitally-signed sets keep a valid signature. You're asked before closing
+  with unsaved markups.
+
 ### Keyboard
 
 | Keys | Action |
@@ -36,6 +50,10 @@ Built for people who only *view* plans (no markups, measuring or editing).
 | Ctrl+O | Open PDFs |
 | Ctrl+H or Ctrl+2 / Ctrl+Shift+H / F6 | Split on/off / flip orientation / switch pane |
 | Ctrl+G | Go to page or sheet number |
+| Ctrl+S / Ctrl+Shift+S | Save markups into the PDF / Save As |
+| Ctrl+Z / Ctrl+Y, Delete | Undo / redo, delete selected markup |
+| Esc / hold Space | Finish or cancel, back to Pan / pan with any tool |
+| Ctrl+C | Copy selected text |
 | Ctrl+W / Ctrl+Tab | Close tab / next tab |
 | Ctrl+F, Enter / Shift+Enter, F3 | Search, next / previous hit |
 | Ctrl+E | Extract sheets |
@@ -110,6 +128,10 @@ crash-recovery check. `EPP_WORKERS=n` overrides the worker count in the app
 - `src-tauri/src/lib.rs` – Tauri commands, the in-memory search index, and the async `tile:` URI
   scheme (`{doc}/{page}/{scale_milli}/{tx}/{ty}` → uncompressed 32-bit BMP, which PDFium's BGRA
   output maps onto with no encoding cost).
+- `src-tauri/src/pdfwrite.rs` – writes markups as annotations with their own appearance streams in
+  a minimal incremental update (lopdf); `annotate.rs` runs it in a separate `--save-markups`
+  process (PDFium incremental save as fallback).
+- `src/markup.ts`, `src/measure.ts` – tools, SVG overlay per page, undo, scales and formats.
 - `src/viewer.ts` – virtualized layout. Only pages near the viewport are in the DOM and only
   visible tiles are requested. Each page has a one-tile low-res placeholder (also the grid
   thumbnail); the render scale is zoom × devicePixelRatio rounded up to √2 steps (max 16 px/pt).

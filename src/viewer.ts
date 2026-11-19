@@ -69,6 +69,8 @@ export interface ViewerEvents {
   onZoomChange(): void;
   onSelectionChange(): void;
   onOpenPage(page: number): void; // grid double-click
+  /** A page element was created (scroll / two-up): add overlays to it. */
+  onPageBuilt?(page: number, el: HTMLDivElement): void;
 }
 
 export class Viewer {
@@ -91,6 +93,8 @@ export class Viewer {
   private pendingJump: { page: number; index: number } | null = null;
 
   private ro: ResizeObserver;
+  /** Whether a plain left-button drag pans (false while a markup tool is active). */
+  leftDragPans: () => boolean = () => true;
   private pan: { id: number; x: number; y: number; left: number; top: number; moved: boolean } | null = null;
 
   constructor(private scroller: HTMLElement, private content: HTMLElement, private ev: ViewerEvents) {
@@ -119,7 +123,7 @@ export class Viewer {
     sc.addEventListener('pointerdown', (e) => {
       const d = this.doc;
       if (!d || e.pointerType === 'touch') return;
-      const left = e.button === 0 && d.mode !== 'grid';
+      const left = e.button === 0 && d.mode !== 'grid' && this.leftDragPans();
       const middle = e.button === 1;
       if (!left && !middle) return;
       // Leave the scrollbars alone.
@@ -598,6 +602,35 @@ export class Viewer {
     this.views.set(page, v);
     this.place(v);
     this.content.appendChild(el);
+    if (d.mode !== 'grid') this.ev.onPageBuilt?.(page, el);
+  }
+
+  /** Page elements currently in the DOM. */
+  pageElements(): [number, HTMLDivElement][] {
+    return [...this.views.values()].map((v) => [v.page, v.el]);
+  }
+
+  /** Client point -> page and position on it in points (top-left origin), if over a page. */
+  pageAt(clientX: number, clientY: number, page?: number): { page: number; x: number; y: number } | null {
+    const d = this.doc;
+    if (!d) return null;
+    for (const v of this.views.values()) {
+      if (page !== undefined && v.page !== page) continue;
+      const r = v.el.getBoundingClientRect();
+      const inside = clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom;
+      if (!inside && page === undefined) continue;
+      const [pw, ph] = d.info.pages[v.page];
+      return { page: v.page, x: ((clientX - r.left) / r.width) * pw, y: ((clientY - r.top) / r.height) * ph };
+    }
+    return null;
+  }
+
+  /** CSS pixels per PDF point for the current view. */
+  cssScale(): number {
+    const d = this.doc;
+    if (!d) return 1;
+    const s = this.slots[0];
+    return s ? s.w / d.info.pages[0][0] : d.zoom;
   }
 
   private loadPlaceholder(v: PageView) {

@@ -20,6 +20,11 @@ pub enum Request {
     Find { path: String, page: u32, query: String },
     /// Copy pages (0-based) into a new PDF at `dest`.
     Extract { path: String, pages: Vec<u32>, dest: String },
+    /// Text inside a display-space rectangle [x0, y0, x1, y1] (points): text + highlight rects.
+    SelectText { path: String, page: u32, rect: [f32; 4] },
+    /// Any region of a page at `scale` px/pt. `rect` = display points [x, y, w, h].
+    /// Body = raw top-down BGRA pixels; data = { w, h }.
+    Region { path: String, page: u32, scale: f64, rect: [f32; 4] },
     /// Test hook: makes the worker abort, to exercise crash recovery.
     Crash,
 }

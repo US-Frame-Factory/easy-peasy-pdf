@@ -16,15 +16,29 @@ const MAX_PAGES: usize = 6;
 type Body = Vec<u8>;
 type OpResult = Result<(serde_json::Value, Body), String>;
 
+/// (length, modified time): a document is reloaded when its file changes on disk
+/// (e.g. after markups were saved into it).
+type Stamp = (u64, Option<std::time::SystemTime>);
+
+fn stamp(path: &str) -> Stamp {
+    std::fs::metadata(path).map(|m| (m.len(), m.modified().ok())).unwrap_or((0, None))
+}
+
 struct Cache {
     pdfium: &'static Pdfium,
-    docs: Vec<(String, PdfDocument<'static>)>,
+    docs: Vec<(String, Stamp, PdfDocument<'static>)>,
     pages: Vec<((String, u32), PdfPage<'static>)>,
 }
 
 impl Cache {
     fn doc(&mut self, path: &str) -> Result<&PdfDocument<'static>, String> {
-        if let Some(i) = self.docs.iter().position(|(p, _)| p == path) {
+        let st = stamp(path);
+        if let Some(i) = self.docs.iter().position(|(p, s, _)| p == path && *s != st) {
+            // Changed on disk: drop its pages, then the document.
+            self.pages.retain(|((p, _), _)| p != path);
+            self.docs.remove(i);
+        }
+        if let Some(i) = self.docs.iter().position(|(p, _, _)| p == path) {
             let d = self.docs.remove(i);
             self.docs.push(d);
         } else {
@@ -33,18 +47,19 @@ impl Cache {
                 .load_pdf_from_file(path, None)
                 .map_err(|e| format!("cannot open PDF: {e}"))?;
             if self.docs.len() >= MAX_DOCS {
-                let (old, _) = &self.docs[0];
+                let (old, _, _) = &self.docs[0];
                 let old = old.clone();
                 // Pages borrow their document's handle: drop them first.
                 self.pages.retain(|((p, _), _)| *p != old);
                 self.docs.remove(0);
             }
-            self.docs.push((path.to_string(), doc));
+            self.docs.push((path.to_string(), st, doc));
         }
-        Ok(&self.docs.last().unwrap().1)
+        Ok(&self.docs.last().unwrap().2)
     }
 
     fn page(&mut self, path: &str, index: u32) -> Result<&PdfPage<'static>, String> {
+        self.doc(path)?; // reloads (and drops stale pages) if the file changed
         let key = (path.to_string(), index);
         if let Some(i) = self.pages.iter().position(|(k, _)| *k == key) {
             let p = self.pages.remove(i);
@@ -158,6 +173,18 @@ impl Xform {
         }
     }
 
+    /// Display point (top-left origin, rotated) -> PDF user space.
+    fn to_user(&self, x: f32, y: f32) -> (f32, f32) {
+        let (bw, bh) = (self.bw, self.bh);
+        let (u, v) = match self.rot {
+            PdfPageRenderRotation::None => (x, y),
+            PdfPageRenderRotation::Degrees90 => (y, bh - x),
+            PdfPageRenderRotation::Degrees180 => (bw - x, bh - y),
+            PdfPageRenderRotation::Degrees270 => (bw - y, x),
+        };
+        (self.bx0 + u, self.by1 - v)
+    }
+
     fn apply(&self, r: &PdfRect) -> [f32; 4] {
         let (bw, bh) = (self.bw, self.bh);
         // Unrotated, top-left origin.
@@ -176,6 +203,78 @@ impl Xform {
 fn handle(cache: &mut Cache, req: Request) -> OpResult {
     match req {
         Request::Crash => unreachable!(),
+        Request::SelectText { path, page, rect } => {
+            let p = cache.page(&path, page)?;
+            let text = p.text().map_err(|e| format!("text: {e}"))?;
+            let xf = Xform::new(p);
+            let (ax, ay) = xf.to_user(rect[0], rect[1]);
+            let (bx, by) = xf.to_user(rect[2], rect[3]);
+            let r = PdfRect::new_from_values(ay.min(by), ax.min(bx), ay.max(by), ax.max(bx));
+            let selected = text.inside_rect(r);
+            // Highlight rects: characters inside, merged into runs per line.
+            let mut runs: Vec<[f32; 4]> = Vec::new();
+            let mut last: Option<(usize, f32, f32)> = None; // (index, top, height)
+            let (rx0, ry0) = (rect[0].min(rect[2]), rect[1].min(rect[3]));
+            let (rx1, ry1) = (rect[0].max(rect[2]), rect[1].max(rect[3]));
+            {
+                let chars = text.chars();
+                for ch in chars.iter().take(200_000) {
+                    let Ok(b) = ch.loose_bounds() else { continue };
+                    let d = xf.apply(&b);
+                    let (cx, cy) = (d[0] + d[2] / 2.0, d[1] + d[3] / 2.0);
+                    if cx < rx0 || cx > rx1 || cy < ry0 || cy > ry1 {
+                        continue;
+                    }
+                    if d[2] <= 0.0 || d[3] <= 0.0 {
+                        continue;
+                    }
+                    let i = ch.index() as usize;
+                    let joins = last.is_some_and(|(li, t, h)| i == li + 1 && (d[1] - t).abs() < h * 0.4);
+                    if joins {
+                        let r = runs.last_mut().unwrap();
+                        let (x0, y0) = (r[0].min(d[0]), r[1].min(d[1]));
+                        let (x1, y1) = ((r[0] + r[2]).max(d[0] + d[2]), (r[1] + r[3]).max(d[1] + d[3]));
+                        *r = [x0, y0, x1 - x0, y1 - y0];
+                    } else {
+                        runs.push(d);
+                    }
+                    last = Some((i, d[1], d[3]));
+                }
+            }
+            Ok((json!({ "text": selected, "rects": runs }), Vec::new()))
+        }
+        Request::Region { path, page, scale, rect } => {
+            if !(scale.is_finite() && scale > 0.0 && scale <= 64.0) {
+                return Err("bad scale".into());
+            }
+            let p = cache.page(&path, page)?;
+            let (pw, ph) = (p.width().value as f64, p.height().value as f64);
+            let (w, h) = ((pw * scale).round() as i64, (ph * scale).round() as i64);
+            let x0 = (rect[0] as f64 * scale).round().max(0.0) as i64;
+            let y0 = (rect[1] as f64 * scale).round().max(0.0) as i64;
+            let rw = ((rect[2] as f64 * scale).round() as i64).min(w - x0);
+            let rh = ((rect[3] as f64 * scale).round() as i64).min(h - y0);
+            if rw <= 0 || rh <= 0 || rw * rh > 64_000_000 || w > i32::MAX as i64 || h > i32::MAX as i64 {
+                return Err("snapshot area is empty or too large".into());
+            }
+            let mut bitmap = PdfBitmap::empty(rw as i32, rh as i32, PdfBitmapFormat::BGRA)
+                .map_err(|e| format!("bitmap: {e}"))?;
+            let cfg = PdfRenderConfig::new()
+                .set_fixed_size(w as i32, h as i32)
+                .set_origin(-(x0 as i32), -(y0 as i32))
+                .render_annotations(true)
+                .render_form_data(true)
+                .set_reverse_byte_order(false);
+            p.render_into_bitmap_with_config(&mut bitmap, &cfg).map_err(|e| format!("render: {e}"))?;
+            let raw = bitmap.as_raw_bytes();
+            let stride = raw.len() / rh as usize;
+            let row = rw as usize * 4;
+            let mut out = Vec::with_capacity(row * rh as usize);
+            for y in 0..rh as usize {
+                out.extend_from_slice(&raw[y * stride..y * stride + row]);
+            }
+            Ok((json!({ "w": rw, "h": rh }), out))
+        }
         Request::Info { path } => {
             let doc = cache.doc(&path)?;
             let pages = doc.pages();

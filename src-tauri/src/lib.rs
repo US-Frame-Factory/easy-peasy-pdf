@@ -1,4 +1,6 @@
+pub mod annotate;
 pub mod bench;
+pub mod pdfwrite;
 pub mod pool;
 pub mod protocol;
 pub mod sheets;
@@ -36,6 +38,7 @@ pub struct AppState {
     docs: RwLock<HashMap<u64, Arc<Doc>>>,
     next_id: AtomicU64,
     initial_files: Mutex<Vec<String>>,
+    pdfium: PathBuf,
 }
 
 impl AppState {
@@ -287,6 +290,109 @@ fn crash_a_worker(state: tauri::State<'_, AppState>) {
     let _ = state.pool.submit(Request::Crash, Prio::Interactive, None);
 }
 
+#[tauri::command]
+async fn select_text(state: tauri::State<'_, AppState>, doc: u64, page: u32, rect: [f32; 4]) -> Result<serde_json::Value, String> {
+    let d = state.doc(doc)?;
+    let r = state
+        .pool
+        .run(Request::SelectText { path: d.path.clone(), page, rect }, Prio::Interactive)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(r.data)
+}
+
+/// Renders part of a page. Response body: u32 LE width, u32 LE height, then RGBA pixels.
+#[tauri::command]
+async fn render_region(state: tauri::State<'_, AppState>, doc: u64, page: u32, scale: f64, rect: [f32; 4]) -> Result<tauri::ipc::Response, String> {
+    let d = state.doc(doc)?;
+    let r = state
+        .pool
+        .run(Request::Region { path: d.path.clone(), page, scale, rect }, Prio::Interactive)
+        .await
+        .map_err(|e| e.to_string())?;
+    let (w, h) = (r.data["w"].as_u64().unwrap_or(0) as u32, r.data["h"].as_u64().unwrap_or(0) as u32);
+    let mut out = Vec::with_capacity(8 + r.body.len());
+    out.extend_from_slice(&w.to_le_bytes());
+    out.extend_from_slice(&h.to_le_bytes());
+    for px in r.body.chunks_exact(4) {
+        out.extend_from_slice(&[px[2], px[1], px[0], 255]); // BGRA -> RGBA, opaque
+    }
+    Ok(tauri::ipc::Response::new(out))
+}
+
+#[tauri::command]
+fn copy_text(app: tauri::AppHandle, text: String) -> Result<(), String> {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+    app.clipboard().write_text(text).map_err(|e| e.to_string())
+}
+
+/// Raw body: RGBA pixels; headers x-width / x-height.
+#[tauri::command]
+fn copy_image(app: tauri::AppHandle, request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+    let num = |k: &str| -> Result<u32, String> {
+        request.headers().get(k).and_then(|v| v.to_str().ok()).and_then(|v| v.parse().ok()).ok_or(format!("missing {k}"))
+    };
+    let (w, h) = (num("x-width")?, num("x-height")?);
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else { return Err("expected raw image bytes".into()) };
+    if bytes.len() != (w as usize) * (h as usize) * 4 {
+        return Err("image size mismatch".into());
+    }
+    let img = tauri::image::Image::new_owned(bytes.clone(), w, h);
+    app.clipboard().write_image(&img).map_err(|e| e.to_string())
+}
+
+fn author_name() -> String {
+    std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_default()
+}
+
+/// Writes markups into the PDF as annotations, in a separate process.
+/// `dest` = None saves into the open file itself (written to a temp file, then swapped in).
+#[tauri::command]
+async fn save_markups(state: tauri::State<'_, AppState>, doc: u64, markups: serde_json::Value, dest: Option<String>) -> Result<String, String> {
+    let d = state.doc(doc)?;
+    let src = d.path.clone();
+    let target = match dest {
+        Some(p) if !p.trim().is_empty() => p,
+        _ => src.clone(),
+    };
+    let tmp = format!("{target}.saving-{}.tmp", std::process::id());
+    let job = serde_json::json!({ "src": src, "dest": tmp, "author": author_name(), "markups": markups });
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let pdfium = state.pdfium.clone();
+    let out = tauri::async_runtime::spawn_blocking(move || -> Result<serde_json::Value, String> {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        let mut cmd = Command::new(exe);
+        cmd.arg("--save-markups").arg("--pdfium").arg(&pdfium).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        }
+        let mut child = cmd.spawn().map_err(|e| format!("cannot start saver: {e}"))?;
+        child.stdin.take().unwrap().write_all(job.to_string().as_bytes()).map_err(|e| e.to_string())?;
+        let out = child.wait_with_output().map_err(|e| e.to_string())?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        serde_json::from_str(text.trim()).map_err(|_| format!("saver crashed ({})", out.status))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    if out["ok"].as_bool() != Some(true) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(out["error"].as_str().unwrap_or("save failed").to_string());
+    }
+    if let Err(e) = std::fs::rename(&tmp, &target) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(if target == src {
+            format!("Couldn't replace the file (is it open in another program?): {e}. Use Save As instead.")
+        } else {
+            format!("Couldn't write {target}: {e}")
+        });
+    }
+    Ok(target)
+}
+
 fn percent_decode(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
@@ -366,6 +472,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .register_asynchronous_uri_scheme_protocol("tile", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             let path = request.uri().path().to_string();
@@ -380,12 +487,13 @@ pub fn run() {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or_else(pool::default_worker_count);
-            let pool = Pool::start(exe, pdfium, workers);
+            let pool = Pool::start(exe, pdfium.clone(), workers);
             app.manage(AppState {
                 pool,
                 docs: RwLock::new(HashMap::new()),
                 next_id: AtomicU64::new(1),
                 initial_files: Mutex::new(files.clone()),
+                pdfium,
             });
             Ok(())
         })
@@ -397,7 +505,12 @@ pub fn run() {
             find,
             extract,
             initial_files,
-            crash_a_worker
+            crash_a_worker,
+            select_text,
+            render_region,
+            copy_text,
+            copy_image,
+            save_markups
         ])
         .run(tauri::generate_context!())
         .expect("error while running Easy Peasy PDF");

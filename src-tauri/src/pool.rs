@@ -313,6 +313,8 @@ fn short(req: &Request) -> String {
         Request::Text { path, page } => format!("text {path} p{}", page + 1),
         Request::Find { path, page, .. } => format!("find {path} p{}", page + 1),
         Request::Extract { path, .. } => format!("extract {path}"),
+        Request::SelectText { path, page, .. } => format!("select {path} p{}", page + 1),
+        Request::Region { path, page, .. } => format!("region {path} p{}", page + 1),
         Request::Crash => "crash".into(),
     }
 }

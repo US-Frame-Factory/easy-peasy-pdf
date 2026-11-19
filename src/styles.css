@@ -149,3 +149,43 @@ button.ghost:hover { background: #eef1f5; }
   background: #e8f1fd; border-bottom: 1px solid #b9d2f3; color: #0f3d7a;
 }
 #update-bar span { flex: 1; }
+
+/* ---------- markup tools ---------- */
+#tools {
+  display: flex; align-items: center; gap: 8px; padding: 4px 10px; flex: none; flex-wrap: wrap;
+  background: #f7f8fa; border-bottom: 1px solid var(--line);
+}
+#tools .spacer { flex: 1; }
+#tools button { min-height: 26px; padding: 2px 8px; }
+#btn-scale { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pop-wrap { position: relative; }
+#style-pop {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; width: 340px; padding: 10px 12px;
+  background: #fff; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.25);
+}
+#style-pop[hidden] { display: none; }
+.pop-title { display: flex; justify-content: space-between; align-items: center; font-weight: 600; margin-bottom: 8px; }
+.pop-title .x { border: 0; background: transparent; min-height: 0; font-size: 16px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+.grid2 label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.grid2 input[type=color] { width: 100%; height: 26px; border: 1px solid var(--line); border-radius: 4px; padding: 1px; }
+.grid2 select { font: inherit; min-height: 26px; }
+.rng { display: flex; gap: 6px; align-items: center; }
+.rng input[type=range] { flex: 1; min-width: 0; }
+.rng input[type=number] { width: 52px; font: inherit; border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; }
+
+.page svg.mk { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 3; }
+.page .hls { z-index: 2; }
+svg.mk .sel { fill: none; stroke: #1e88ff; stroke-width: 1.5px; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
+svg.mk .tsel { fill: rgba(30, 136, 255, 0.28); }
+svg.mk .marquee { fill: rgba(30, 136, 255, 0.08); stroke: #1e88ff; stroke-width: 1px; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+svg.mk .marquee.snap { fill: rgba(0, 0, 0, 0.06); stroke: #222; }
+svg.mk .calib { stroke: #e03; stroke-width: 2px; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; }
+textarea.mk-edit {
+  position: absolute; z-index: 4; resize: none; overflow: hidden; margin: 0; box-sizing: border-box;
+  font-family: Helvetica, Arial, sans-serif; background: rgba(255, 255, 255, 0.92);
+  border: 1px dashed; outline: 2px solid rgba(30, 136, 255, 0.5); white-space: pre;
+}
+body:not([data-tool="pan"]) .viewer { cursor: crosshair; }
+body[data-tool="select-text"] .viewer { cursor: text; }
+body.space-pan .viewer { cursor: grab !important; }
