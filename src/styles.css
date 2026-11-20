@@ -239,6 +239,13 @@ textarea.mk-edit {
   border: 1px dashed; outline: 2px solid rgba(30, 136, 255, 0.5); white-space: pre;
 }
 body:not([data-tool="pan"]) .viewer { cursor: crosshair; }
+body[data-tool="edit-text"] .viewer { cursor: text; }
+input.mk-tedit {
+  position: absolute; z-index: 4; margin: 0; padding: 0 4px; box-sizing: border-box; transform-origin: 0 0;
+  background: rgba(255, 255, 255, 0.96); border: 1px solid #1e88ff; outline: 2px solid rgba(30, 136, 255, 0.35);
+  border-radius: 2px; white-space: pre;
+}
+.mk .tedit-mark { fill: none; stroke: #1e88ff; stroke-width: 0.6; stroke-dasharray: 2 2; vector-effect: non-scaling-stroke; }
 #main { display: flex; }
 body[data-tool="select-text"] .viewer { cursor: text; }
 body.space-pan .viewer { cursor: grab !important; }

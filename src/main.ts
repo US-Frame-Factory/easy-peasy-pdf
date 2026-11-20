@@ -5,7 +5,7 @@ import { api, DocInfo, Hit } from './api';
 import { formatRanges, parseRanges } from './ranges';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { initUpdates } from './updates';
-import { FontName, isKind, Kind, KIND_NAMES, Markups, marksOf, measureText, Tool } from './markup';
+import { FontName, isKind, Kind, KIND_NAMES, Markups, marksOf, measureText, pendingCount, Tool } from './markup';
 import { FORMATS, getScale, NumberFormat, parseLength, PRESETS, scaleLabel, setScale } from './measure';
 import { DocState, Mode, Viewer } from './viewer';
 
@@ -272,7 +272,7 @@ function updateToolbar() {
   $<HTMLButtonElement>('btn-undo').disabled = !mk?.undo.length;
   $<HTMLButtonElement>('btn-redo').disabled = !mk?.redo.length;
   $<HTMLButtonElement>('btn-save').disabled = !d;
-  $('btn-save').textContent = mk?.dirty && mk.markups.length ? `Save (${mk.markups.length})` : 'Save';
+  $('btn-save').textContent = mk?.dirty && pendingCount(mk) ? `Save (${pendingCount(mk)})` : 'Save';
   $<HTMLButtonElement>('btn-scale').disabled = !d;
   for (const id of ['btn-rotate', 'btn-rename']) $<HTMLButtonElement>(id).disabled = !d;
   pageInput.disabled = !d;
@@ -292,7 +292,7 @@ function renderTabs() {
     t.title = d.path;
     const name = document.createElement('span');
     name.className = 'name';
-    const dirty = !!(d.marks?.dirty && d.marks.markups.length);
+    const dirty = !!(d.marks?.dirty && pendingCount(d.marks));
     name.textContent = dirty ? `● ${d.name}` : d.name;
     if (dirty) t.title = `${d.path}\nUnsaved markups (Ctrl+S to save)`;
     const x = document.createElement('button');
@@ -681,7 +681,7 @@ pageInput.addEventListener('blur', () => updatePageBox());
 
 // ---------- markups: save, close guard ----------
 
-const unsavedCount = (d: DocInfo) => (d.marks?.dirty ? d.marks.markups.length : 0);
+const unsavedCount = (d: DocInfo) => (d.marks?.dirty ? pendingCount(d.marks) : 0);
 
 interface SaveOpts {
   saveAs?: boolean;
@@ -696,8 +696,9 @@ async function saveDoc(d: DocInfo, opts: SaveOpts | boolean = {}): Promise<boole
   const o: SaveOpts = typeof opts === 'boolean' ? { saveAs: opts } : opts;
   const saveAs = !!o.saveAs;
   marks.commitEdit();
+  marks.commitTextEdit();
   const mk = marksOf(d);
-  if (!mk.markups.length && !saveAs && !o.labels && !o.rotate) {
+  if (!pendingCount(mk) && !saveAs && !o.labels && !o.rotate) {
     toast('No new markups to save.');
     return true;
   }
@@ -711,8 +712,10 @@ async function saveDoc(d: DocInfo, opts: SaveOpts | boolean = {}): Promise<boole
     dest = /\.pdf$/i.test(picked) ? picked : `${picked}.pdf`;
   }
   const payload = mk.markups.map((m) => ({ ...m, text: m.kind === 'measure' ? measureText(m) : m.text }));
+  const edits = mk.edits.map((e) => ({ page: e.page, index: e.index, orig: e.orig, text: e.text }));
   const what = [
     payload.length ? `${payload.length} markup${payload.length === 1 ? '' : 's'}` : '',
+    edits.length ? `${edits.length} text edit${edits.length === 1 ? '' : 's'}` : '',
     o.labels ? 'sheet names' : '',
     o.rotate ? `rotation of ${o.rotate.length} page${o.rotate.length === 1 ? '' : 's'}` : '',
   ]
@@ -720,7 +723,7 @@ async function saveDoc(d: DocInfo, opts: SaveOpts | boolean = {}): Promise<boole
     .join(' + ');
   toast(`Saving ${what}…`, false, 1500);
   try {
-    const written = await api.saveMarkups(d.id, payload, dest, o.labels, o.rotate);
+    const written = await api.saveMarkups(d.id, payload, dest, o.labels, o.rotate, edits.length ? edits : undefined);
     const info = await api.openDoc(written);
     info.labels = d.labels?.length === info.pages.length ? d.labels : new Array(info.pages.length).fill(null);
     marks.clearSaved(d);
@@ -747,6 +750,11 @@ function replaceDoc(old: DocInfo, info: DocInfo) {
       p.views.set(info.id, st);
     }
     if (p.current?.info === info || st === p.current) {
+      if (st) {
+        // Keep where the user was looking (the state only holds it after a tab switch).
+        st.scrollTop = p.scroller.scrollTop;
+        st.scrollLeft = p.scroller.scrollLeft;
+      }
       p.current = null;
       p.viewer.doc = null; // keep the saved scroll position in `st`
       p.show(info, st);
@@ -906,6 +914,7 @@ const HINTS: Record<string, string> = {
   'select-text': 'Drag a box around text, then Ctrl+C to copy',
   snapshot: 'Drag a box to copy that area (with markups) as an image',
   calibrate: 'Click both ends of a dimension you know, then type its length',
+  'edit-text': "Click a line of the drawing's own text to change it · Enter keeps it, Esc cancels · clear it to delete · written into the PDF on Save",
 };
 const fmtSel = $<HTMLSelectElement>('p-format');
 for (const f of FORMATS) fmtSel.add(new Option(f.example, f.id));
@@ -992,12 +1001,13 @@ for (const b of $('rail').querySelectorAll<HTMLButtonElement>('button[data-tool]
   b.onclick = () => selectTool(b.dataset.tool as Tool);
 }
 TOOL_NAMES['select-text'] = 'Select text';
+TOOL_NAMES['edit-text'] = 'Edit PDF text';
 
 function selectTool(t: Tool) {
   if (!active()) return;
   if (t !== 'calibrate' && !calibPanel.hidden) closeCalibration(false);
   marks.setTool(t);
-  if ((isKind(marks.tool) || t === 'calibrate') && active()?.mode === 'grid') viewer().setMode('scroll');
+  if ((isKind(marks.tool) || t === 'calibrate' || t === 'edit-text') && active()?.mode === 'grid') viewer().setMode('scroll');
   renderProps();
   focused.scroller.focus({ preventScroll: true });
 }

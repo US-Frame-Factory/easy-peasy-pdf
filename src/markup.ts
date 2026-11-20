@@ -9,7 +9,7 @@ import { formatLength, getScale, NumberFormat } from './measure';
 import type { Viewer } from './viewer';
 
 export type Kind = 'pen' | 'highlight' | 'rect' | 'ellipse' | 'text' | 'callout' | 'measure';
-export type Tool = 'pan' | 'select-text' | 'snapshot' | 'calibrate' | Kind;
+export type Tool = 'pan' | 'select-text' | 'snapshot' | 'calibrate' | 'edit-text' | Kind;
 
 export type FontName = 'helvetica' | 'times' | 'courier';
 
@@ -38,8 +38,26 @@ export interface Markup {
   style: Style;
 }
 
+/** A pending change to the PDF's own text (written in place on save). */
+export interface TextEditM {
+  id: string;
+  page: number;
+  /** PDFium object index of the text on the page, and its text when picked. */
+  index: number;
+  orig: string;
+  text: string;
+  /** Corners in display points: bottom-left, bottom-right, top-right, top-left. */
+  quad: [Pt, Pt, Pt, Pt];
+  size: number;
+  color: string;
+  font: string;
+  bold: boolean;
+  italic: boolean;
+}
+
 export interface DocMarks {
   markups: Markup[];
+  edits: TextEditM[];
   undo: string[];
   redo: string[];
   dirty: boolean;
@@ -84,7 +102,70 @@ let seq = 0;
 const newId = () => `epp-${Date.now().toString(36)}-${(seq++).toString(36)}`;
 
 export function marksOf(info: DocInfo): DocMarks {
-  return (info.marks ??= { markups: [], undo: [], redo: [], dirty: false });
+  const mk = (info.marks ??= { markups: [], edits: [], undo: [], redo: [], dirty: false });
+  mk.edits ??= [];
+  return mk;
+}
+
+/** Unsaved changes: markups plus text edits. */
+export const pendingCount = (mk: DocMarks | undefined) => (mk ? mk.markups.length + (mk.edits?.length ?? 0) : 0);
+
+const snap = (markups: Markup[], edits: TextEditM[]) => JSON.stringify({ markups, edits });
+
+/** CSS font family resembling a PDF font name. */
+function pdfFamily(name: string): string {
+  const n = name.toLowerCase();
+  if (/courier|mono|consol/.test(n)) return FAMILIES.courier;
+  if (/times|roman|serif|georgia|garamond|cambria/.test(n) && !/sans/.test(n)) return FAMILIES.times;
+  if (/narrow|condensed/.test(n)) return "'Arial Narrow', Arial, sans-serif";
+  return 'Arial, Helvetica, sans-serif';
+}
+
+function editGeom(e: TextEditM) {
+  const [p1, p2, , p4] = e.quad;
+  const angle = Math.atan2(p2[1] - p1[1], p2[0] - p1[0]);
+  const height = Math.max(0.5, Math.hypot(p4[0] - p1[0], p4[1] - p1[1]));
+  const width = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
+  const up: Pt = [(p4[0] - p1[0]) / height, (p4[1] - p1[1]) / height];
+  // Bounds include the font's descent; the baseline sits about that far above the bottom.
+  const desc = Math.min(height * 0.3, e.size * 0.21);
+  const base: Pt = [p1[0] + up[0] * desc, p1[1] + up[1] * desc];
+  return { angle, height, width, up, base };
+}
+
+/** Preview of a text edit: the old text whited out, the new text in its place. */
+function drawTextEdit(g: SVGGElement, e: TextEditM, withText: boolean) {
+  const { angle, up, base } = editGeom(e);
+  const pad = 0.8;
+  const [a, b] = [Math.cos(angle), Math.sin(angle)];
+  const q = e.quad.map(([x, y], i) => {
+    const sx = i === 0 || i === 3 ? -pad : pad; // along the baseline
+    const sy = i >= 2 ? pad : -pad; // along "up"
+    return [x + a * sx + up[0] * sy, y + b * sx + up[1] * sy];
+  });
+  el('polygon', { class: 'tedit-cover', points: q.map((p) => p.join(',')).join(' '), fill: '#ffffff' }, g);
+  if (!withText || !e.text) return;
+  const t = el('text', {
+    x: 0,
+    y: 0,
+    transform: `translate(${base[0]} ${base[1]}) rotate(${(angle * 180) / Math.PI})`,
+    'font-size': e.size,
+    'font-family': pdfFamily(e.font),
+    'font-weight': e.bold ? 'bold' : 'normal',
+    'font-style': e.italic ? 'italic' : 'normal',
+    fill: e.color,
+  }, g);
+  t.setAttribute('xml:space', 'preserve');
+  t.textContent = e.text;
+  el('polygon', { class: 'tedit-mark', points: q.map((p) => p.join(',')).join(' ') }, g);
+}
+
+function inQuad(e: TextEditM, p: Pt): boolean {
+  const { angle, height, width } = editGeom(e);
+  const [x, y] = [p[0] - e.quad[0][0], p[1] - e.quad[0][1]];
+  const along = x * Math.cos(angle) + y * Math.sin(angle);
+  const across = -(x * -Math.sin(angle) + y * Math.cos(angle)); // towards "up"
+  return along >= -2 && along <= Math.max(width, 1) + 2 && across >= -2 && across <= height + 2;
 }
 
 // ---------- geometry ----------
@@ -308,6 +389,8 @@ export class Markups {
   private move: Move | null = null;
   private attached: Attached[] = [];
   private editing: { info: DocInfo; id: string; ta: HTMLTextAreaElement; isNew: boolean } | null = null;
+  /** Inline editor for the PDF's own text. */
+  private tedit: { info: DocInfo; id: string; input: HTMLInputElement; isNew: boolean; before: string } | null = null;
   spaceDown = false;
   /** Last calibration line, shown while its length is being entered. */
   calib: { info: DocInfo; page: number; a: Pt; b: Pt } | null = null;
@@ -370,6 +453,9 @@ export class Markups {
 
   private drawPage(svg: SVGSVGElement, info: DocInfo, page: number) {
     svg.textContent = '';
+    for (const e of info.marks?.edits ?? []) {
+      if (e.page === page) drawTextEdit(el('g', {}, svg) as SVGGElement, e, this.tedit?.id !== e.id);
+    }
     const marks = info.marks?.markups ?? [];
     for (const m of marks) {
       if (m.page !== page) continue;
@@ -425,6 +511,7 @@ export class Markups {
   setTool(t: Tool) {
     this.cancelDraft();
     this.commitEdit();
+    this.commitTextEdit();
     if (t !== 'select-text') this.clearTextSel();
     this.tool = t;
     this.hooks.toolChanged(t);
@@ -469,7 +556,7 @@ export class Markups {
 
   private record(info: DocInfo) {
     const mk = marksOf(info);
-    mk.undo.push(JSON.stringify(mk.markups));
+    mk.undo.push(snap(mk.markups, mk.edits));
     if (mk.undo.length > 200) mk.undo.shift();
     mk.redo = [];
   }
@@ -484,8 +571,8 @@ export class Markups {
     const mk = marksOf(info);
     const prev = mk.undo.pop();
     if (prev === undefined) return;
-    mk.redo.push(JSON.stringify(mk.markups));
-    mk.markups = JSON.parse(prev);
+    mk.redo.push(snap(mk.markups, mk.edits));
+    this.restore(mk, prev);
     this.selected = null;
     this.changed(info);
   }
@@ -494,10 +581,16 @@ export class Markups {
     const mk = marksOf(info);
     const next = mk.redo.pop();
     if (next === undefined) return;
-    mk.undo.push(JSON.stringify(mk.markups));
-    mk.markups = JSON.parse(next);
+    mk.undo.push(snap(mk.markups, mk.edits));
+    this.restore(mk, next);
     this.selected = null;
     this.changed(info);
+  }
+
+  private restore(mk: DocMarks, state: string) {
+    const s = JSON.parse(state);
+    mk.markups = s.markups;
+    mk.edits = s.edits ?? [];
   }
 
   deleteSelected(): boolean {
@@ -522,7 +615,7 @@ export class Markups {
 
   /** After a successful save the markups are in the file itself. */
   clearSaved(info: DocInfo) {
-    info.marks = { markups: [], undo: [], redo: [], dirty: false };
+    info.marks = { markups: [], edits: [], undo: [], redo: [], dirty: false };
     if (this.selected?.info === info) this.selected = null;
   }
 
@@ -550,6 +643,7 @@ export class Markups {
 
   /** Escape: cancel what's in progress, then clear selection, then back to Pan. */
   escape() {
+    if (this.tedit) return this.commitTextEdit(true);
     if (this.editing) return this.commitEdit();
     if (this.draft) return this.cancelDraft();
     if (this.textSel) return this.clearTextSel();
@@ -576,6 +670,8 @@ export class Markups {
     if (e.clientX - sr.left >= scroller.clientWidth || e.clientY - sr.top >= scroller.clientHeight) return; // scrollbars
     if (this.editing && !(e.target as Element).closest?.('textarea.mk-edit')) this.commitEdit();
     if ((e.target as Element).closest?.('textarea.mk-edit')) return;
+    if ((e.target as Element).closest?.('input.mk-tedit')) return;
+    if (this.tedit) this.commitTextEdit();
     const at = viewer.pageAt(e.clientX, e.clientY);
     const tol = 6 / viewer.cssScale();
 
@@ -617,6 +713,10 @@ export class Markups {
     scroller.focus({ preventScroll: true });
     const p: Pt = [at.x, at.y];
 
+    if (this.tool === 'edit-text') {
+      void this.pickText(viewer, info, at.page, p);
+      return;
+    }
     if (this.tool === 'text') {
       // Click to place a text box and type.
       this.startText(info, at.page, p, null);
@@ -877,13 +977,132 @@ export class Markups {
     }
     if (ed.isNew) {
       // Record the state without the new box, so one undo removes it.
-      mk.undo.push(JSON.stringify(mk.markups.filter((x) => x !== m)));
+      mk.undo.push(snap(mk.markups.filter((x) => x !== m), mk.edits));
       mk.redo = [];
     }
     m.text = text;
     const [w, h] = fitBox(text, m.style);
     m.box = [m.box![0], m.box![1], w, h];
     this.changed(ed.info, m.page);
+  }
+
+  // ----- editing the PDF's own text -----
+
+  private async pickText(viewer: Viewer, info: DocInfo, page: number, p: Pt) {
+    const mk = marksOf(info);
+    const existing = mk.edits.find((e) => e.page === page && inQuad(e, p));
+    if (existing) return this.openTextEdit(viewer, info, existing, false);
+    let r;
+    try {
+      r = await api.textAt(info.id, page, p[0], p[1]);
+    } catch (err) {
+      return this.hooks.toast(`Could not read the text there: ${err}`, true);
+    }
+    if (!r.found) {
+      return this.hooks.toast(
+        r.inForm ? "That text is inside a grouped block (like a title block or symbol) and can't be edited here." : 'No text there. Click on a word to edit it.',
+        !!r.inForm,
+      );
+    }
+    if (r.invisible) return this.hooks.toast("That's hidden (OCR) text behind a scanned image; it can't be edited visibly.", true);
+    const dup = mk.edits.find((e) => e.page === page && e.index === r.index);
+    if (dup) return this.openTextEdit(viewer, info, dup, false);
+    const ed: TextEditM = {
+      id: newId(),
+      page,
+      index: r.index,
+      orig: r.text,
+      text: r.text.replace(/\s+$/, ''),
+      quad: r.quad,
+      size: r.size,
+      color: r.color,
+      font: r.font,
+      bold: r.bold,
+      italic: r.italic,
+    };
+    this.openTextEdit(viewer, info, ed, true);
+  }
+
+  private openTextEdit(viewer: Viewer, info: DocInfo, ed: TextEditM, isNew: boolean) {
+    this.commitEdit();
+    this.commitTextEdit();
+    const pageEl = viewer.pageElements().find(([p]) => p === ed.page)?.[1];
+    if (!pageEl) return;
+    const [pw, ph] = info.pages[ed.page];
+    const { angle, height, width } = editGeom(ed);
+    const k = viewer.cssScale();
+    const input = document.createElement('input');
+    input.className = 'mk-tedit';
+    input.value = ed.text;
+    input.spellcheck = false;
+    const font = `${ed.italic ? 'italic ' : ''}${ed.bold ? 'bold ' : ''}${ed.size * k}px ${pdfFamily(ed.font)}`;
+    const fit = () => {
+      measureCtx.font = font;
+      input.style.width = `${Math.max(width * k, measureCtx.measureText(input.value || ' ').width) + 24}px`;
+    };
+    const tl = ed.quad[3];
+    Object.assign(input.style, {
+      left: `${(tl[0] / pw) * 100}%`,
+      top: `${(tl[1] / ph) * 100}%`,
+      height: `${Math.max(height * k, ed.size * k * 1.15) + 6}px`,
+      font,
+      color: ed.color,
+      transform: `rotate(${(angle * 180) / Math.PI}deg)`,
+    });
+    fit();
+    input.addEventListener('input', fit);
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        this.commitTextEdit();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        this.commitTextEdit(true);
+      }
+    });
+    input.addEventListener('pointerdown', (e) => e.stopPropagation());
+    input.addEventListener('blur', () => setTimeout(() => this.tedit?.input === input && this.commitTextEdit(), 0));
+    pageEl.appendChild(input);
+    const mk = marksOf(info);
+    if (isNew) mk.edits.push(ed);
+    this.tedit = { info, id: ed.id, input, isNew, before: snap(mk.markups, mk.edits.filter((x) => !isNew || x !== ed)) };
+    this.refresh(info, ed.page);
+    if (isNew) this.hooks.toast('Edit the text, Enter to keep it (Esc cancels). It is written into the PDF when you save. Clear it to delete the text.');
+    requestAnimationFrame(() => {
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    });
+  }
+
+  /** Ends inline text editing; `cancel` drops this round of changes. */
+  commitTextEdit(cancel = false) {
+    const t = this.tedit;
+    if (!t) return;
+    this.tedit = null;
+    t.input.remove();
+    const mk = marksOf(t.info);
+    const ed = mk.edits.find((x) => x.id === t.id);
+    if (!ed) return;
+    const text = t.input.value.replace(/\s+$/, '');
+    const unchanged = text === ed.text;
+    if (cancel || (unchanged && !t.isNew)) {
+      if (t.isNew) mk.edits = mk.edits.filter((x) => x !== ed);
+      this.refresh(t.info, ed.page);
+      return;
+    }
+    if (text === ed.orig.replace(/\s+$/, '')) {
+      // Back to the original: nothing to change.
+      mk.edits = mk.edits.filter((x) => x !== ed);
+      if (t.isNew) return this.refresh(t.info, ed.page);
+    } else {
+      ed.text = text;
+    }
+    mk.undo.push(t.before);
+    if (mk.undo.length > 200) mk.undo.shift();
+    mk.redo = [];
+    this.changed(t.info, ed.page);
+    if (!text) this.hooks.toast('The text will be removed when you save.');
   }
 
   // ----- snapshot & copy -----

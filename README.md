@@ -38,8 +38,17 @@ everyday markup and measuring tools (no editing of the drawings themselves).
   clockwise; saved into the PDF.
 - **Select text** – drag a box around text, Ctrl+C copies it.
 - **Snapshot** – drag a box to copy that area (with any markups) to the clipboard as an image.
+- **Edit text** – change the drawing's own text (not a markup on top): pick the Edit text tool (D),
+  click a line of text, type, Enter (Esc cancels; clear it to delete the text). The change is
+  previewed and written into the PDF on Save. In the file, only the instruction that drew that
+  text is replaced; everything else on the sheet stays exactly as it was (tested pixel-identical
+  outside the edit). The new text keeps the original font if it has every character you typed
+  (fonts are often embedded with only the letters used on the sheet); otherwise the closest
+  standard font (Helvetica / Times / Courier, bold / italic to match) at the same position, size,
+  angle and colour. Text inside grouped blocks (some title blocks / symbols) and hidden OCR text
+  can't be edited.
 - **Markups** – pen, highlighter, rectangle, ellipse, text box and callout (arrow + text), from the
-  tool rail on the left (one-key shortcuts: V pan, X select text, G snapshot, P pen, H highlight,
+  tool rail on the left (one-key shortcuts: V pan, X select text, G snapshot, D edit text, P pen, H highlight,
   R rectangle, E ellipse, T text, C callout, M measure, K calibrate). The properties bar shows the
   style of the current tool or selected markup: colour swatches + colour picker, line width,
   font (Helvetica / Times / Courier), bold / italic / underline, text size, opacity. Pan tool: click a markup to select,
@@ -142,6 +151,10 @@ crash-recovery check. `EPP_WORKERS=n` overrides the worker count in the app
 - `src-tauri/src/pdfwrite.rs` – writes markups as annotations with their own appearance streams in
   a minimal incremental update (lopdf); `annotate.rs` runs it in a separate `--save-markups`
   process (PDFium incremental save as fallback).
+- `src-tauri/src/textedit.rs` – in-place text edits: PDFium finds the text object; its drawing
+  instruction is located in the decoded page content (lopdf), removed (or made invisible if later
+  text continues from it), and the new text is drawn at the same matrix; only the page dictionary
+  and one new content stream are appended.
 - `src/markup.ts`, `src/measure.ts` – tools, SVG overlay per page, undo, scales and formats.
 - `src/viewer.ts` – virtualized layout. Only pages near the viewport are in the DOM and only
   visible tiles are requested. Each page has a one-tile low-res placeholder (also the grid

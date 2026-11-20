@@ -41,6 +41,9 @@ struct Job {
     /// [page, quarter turns clockwise] — "Rotate".
     #[serde(default)]
     rotate: Option<Vec<[i64; 2]>>,
+    /// In-place edits of the PDF's own text.
+    #[serde(default)]
+    edits: Vec<crate::textedit::TextEdit>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -421,27 +424,35 @@ unsafe extern "C" fn write_block(this: *mut FPDF_FILEWRITE, data: *const c_void,
 /// so no offsets or lengths change).
 fn fix_xref_stream_type(path: &str, original_len: usize) -> std::io::Result<()> {
     let mut data = std::fs::read(path)?;
+    if fix_xref_type_in(&mut data, original_len) {
+        std::fs::write(path, &data)?;
+    }
+    Ok(())
+}
+
+/// In-memory version of [fix_xref_stream_type]; returns whether it changed anything.
+pub(crate) fn fix_xref_type_in(data: &mut Vec<u8>, original_len: usize) -> bool {
     let tail_start = data.len().saturating_sub(64);
     let tail = String::from_utf8_lossy(&data[tail_start..]).to_string();
-    let Some(sx) = tail.rfind("startxref") else { return Ok(()) };
+    let Some(sx) = tail.rfind("startxref") else { return false };
     let off: usize = match tail[sx + 9..].split_whitespace().next().and_then(|n| n.parse().ok()) {
         Some(o) => o,
-        None => return Ok(()),
+        None => return false,
     };
     if off < original_len || off >= data.len() {
-        return Ok(()); // not in the appended part: leave it alone
+        return false; // not in the appended part: leave it alone
     }
     let end = (off + 4096).min(data.len());
     let head = &data[off..end];
-    let Some(dict) = head.windows(2).position(|w| w == b"<<") else { return Ok(()) };
+    let Some(dict) = head.windows(2).position(|w| w == b"<<") else { return false };
     let stream_at = head.windows(6).position(|w| w == b"stream").unwrap_or(head.len());
     let dict_text = String::from_utf8_lossy(&head[dict..stream_at]);
     if dict_text.contains("/W") && !dict_text.contains("/Type") {
         let at = off + dict + 2;
         data.splice(at..at, b"/Type/XRef".iter().copied());
-        std::fs::write(path, &data)?;
+        return true;
     }
-    Ok(())
+    false
 }
 
 unsafe fn page_map(b: &dyn PdfiumLibraryBindings, page: FPDF_PAGE) -> PageMap {
@@ -457,18 +468,32 @@ unsafe fn page_map(b: &dyn PdfiumLibraryBindings, page: FPDF_PAGE) -> PageMap {
 fn save(lib: &PathBuf, job: Job) -> Result<usize, String> {
     // Preferred: a minimal incremental update (only the new annotations and their pages).
     let date = pdf_date();
-    let src = std::fs::read(&job.src).map_err(|e| format!("cannot read {}: {e}", job.src))?;
+    let mut src = std::fs::read(&job.src).map_err(|e| format!("cannot read {}: {e}", job.src))?;
+    // 1. Edits of the PDF's own text (PDFium), as their own incremental update.
+    let mut edited = 0;
+    if !job.edits.is_empty() {
+        let eb = Pdfium::bind_to_library(lib).map_err(|e| format!("cannot load PDFium: {e}"))?;
+        unsafe {
+            eb.FPDF_InitLibrary();
+            src = crate::textedit::apply(&*eb, &src, &job.edits)?;
+        }
+        edited = job.edits.len();
+        let nothing_else = job.markups.is_empty() && job.labels.is_none() && job.rotate.as_ref().is_none_or(|r| r.is_empty());
+        if nothing_else {
+            std::fs::write(&job.dest, &src).map_err(|e| format!("cannot write {}: {e}", job.dest))?;
+            return Ok(edited);
+        }
+    }
+    // 2. Markups, page labels, rotation: a minimal update on top.
     let extras = crate::pdfwrite::Extras { labels: job.labels.clone(), rotate: job.rotate.clone().unwrap_or_default() };
-    match crate::pdfwrite::save(src, &job.dest, &job.author, &date, &job.markups, &extras) {
-        Ok(n) => return Ok(n),
+    match crate::pdfwrite::save(src.clone(), &job.dest, &job.author, &date, &job.markups, &extras) {
+        Ok(n) => return Ok(n + edited),
         Err(e) if extras.labels.is_some() || !extras.rotate.is_empty() => return Err(e),
         Err(e) => eprintln!("[save] minimal update failed ({e}); falling back to PDFium"),
     }
     let b = Pdfium::bind_to_library(lib).map_err(|e| format!("cannot load PDFium: {e}"))?;
     let b: &dyn PdfiumLibraryBindings = &*b;
-    // Read into memory so the source file isn't held open (it may be replaced).
-    let bytes = std::fs::read(&job.src).map_err(|e| format!("cannot read {}: {e}", job.src))?;
-    let date = pdf_date();
+    let bytes = src;
     unsafe {
         b.FPDF_InitLibrary();
         let doc = b.FPDF_LoadMemDocument64(&bytes, None);
@@ -508,7 +533,7 @@ fn save(lib: &PathBuf, job: Job) -> Result<usize, String> {
         }
         drop(w);
         fix_xref_stream_type(&job.dest, bytes.len()).map_err(|e| format!("saving failed: {e}"))?;
-        Ok(count)
+        Ok(count + edited)
     }
 }
 

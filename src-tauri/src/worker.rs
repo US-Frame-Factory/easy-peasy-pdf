@@ -203,6 +203,59 @@ impl Xform {
 fn handle(cache: &mut Cache, req: Request) -> OpResult {
     match req {
         Request::Crash => unreachable!(),
+        Request::TextAt { path, page, x, y } => {
+            let p = cache.page(&path, page)?;
+            let xf = Xform::new(p);
+            let (ux, uy) = xf.to_user(x, y);
+            let mut best: Option<(f32, usize, [f32; 8])> = None; // (area, index, quad in user space)
+            let mut in_form = false;
+            for (i, obj) in p.objects().iter().enumerate() {
+                let Ok(q) = obj.bounds() else { continue };
+                let r = q.to_rect();
+                let pad = 1.5;
+                if ux < r.left().value - pad || ux > r.right().value + pad || uy < r.bottom().value - pad || uy > r.top().value + pad {
+                    continue;
+                }
+                match obj.object_type() {
+                    PdfPageObjectType::Text => {
+                        let area = r.width().value * r.height().value;
+                        if best.as_ref().is_none_or(|b| area < b.0) {
+                            let qp = [q.x1().value, q.y1().value, q.x2().value, q.y2().value, q.x3().value, q.y3().value, q.x4().value, q.y4().value];
+                            best = Some((area, i, qp));
+                        }
+                    }
+                    PdfPageObjectType::XObjectForm => in_form = true,
+                    _ => {}
+                }
+            }
+            let Some((_, index, q)) = best else {
+                return Ok((json!({ "found": false, "inForm": in_form }), Vec::new()));
+            };
+            let obj = p.objects().get(index as PdfPageObjectIndex).map_err(|e| e.to_string())?;
+            let t = obj.as_text_object().ok_or("not a text object")?;
+            let font = t.font();
+            // Quad corners in display space: 1 = bottom-left (baseline start), 2 = bottom-right, 4 = top-left.
+            let disp = |px: f32, py: f32| -> [f32; 2] {
+                let d = xf.apply(&PdfRect::new_from_values(py, px, py, px));
+                [d[0], d[1]]
+            };
+            let (p1, p2, p4) = (disp(q[0], q[1]), disp(q[2], q[3]), disp(q[6], q[7]));
+            let angle = (p2[1] - p1[1]).atan2(p2[0] - p1[0]);
+            let height = ((p4[0] - p1[0]).powi(2) + (p4[1] - p1[1]).powi(2)).sqrt();
+            let color = obj.fill_color().map(|c| format!("#{:02x}{:02x}{:02x}", c.red(), c.green(), c.blue())).unwrap_or("#000000".into());
+            let name = font.name();
+            let invisible = matches!(t.render_mode(), PdfPageTextRenderMode::Invisible);
+            Ok((
+                json!({
+                    "found": true, "index": index, "text": t.text(), "origin": p1, "angle": angle,
+                    "quad": [p1, p2, disp(q[4], q[5]), p4], "height": height,
+                    "size": t.scaled_font_size().value, "color": color, "font": name,
+                    "bold": font.is_bold_reenforced() || name.to_lowercase().contains("bold"),
+                    "italic": font.is_italic(), "invisible": invisible,
+                }),
+                Vec::new(),
+            ))
+        }
         Request::SelectText { path, page, rect } => {
             let p = cache.page(&path, page)?;
             let text = p.text().map_err(|e| format!("text: {e}"))?;

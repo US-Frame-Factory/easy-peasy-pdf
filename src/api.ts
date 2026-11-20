@@ -47,12 +47,35 @@ export const api = {
   copyImage: (rgba: Uint8Array, w: number, h: number) =>
     invoke<void>('copy_image', rgba, { headers: { 'x-width': String(w), 'x-height': String(h) } }),
   /** Returns the path written. `dest` omitted = into the open file. */
-  saveMarkups: (doc: number, markups: unknown[], dest?: string, labels?: string[], rotate?: [number, number][]) =>
-    invoke<string>('save_markups', { doc, markups, dest, labels, rotate }),
+  saveMarkups: (doc: number, markups: unknown[], dest?: string, labels?: string[], rotate?: [number, number][], edits?: TextEditReq[]) =>
+    invoke<string>('save_markups', { doc, markups, dest, labels, rotate, edits }),
+  textAt: (doc: number, page: number, x: number, y: number) => invoke<TextAt>('text_at', { doc, page, x, y }),
   sheetInfo: (doc: number) =>
     invoke<{ numbers: (string | null)[]; titles: (string | null)[]; labels: (string | null)[]; indexed: number; total: number }>('sheet_info', { doc }),
   crashAWorker: () => invoke<void>('crash_a_worker'),
 };
+
+export interface TextEditReq {
+  page: number;
+  index: number;
+  orig: string;
+  text: string;
+}
+
+export type TextAt =
+  | { found: false; inForm?: boolean }
+  | {
+      found: true;
+      index: number;
+      text: string;
+      quad: [[number, number], [number, number], [number, number], [number, number]];
+      size: number;
+      color: string;
+      font: string;
+      bold: boolean;
+      italic: boolean;
+      invisible: boolean;
+    };
 
 export const TILE = 512;
 

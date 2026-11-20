@@ -4,6 +4,7 @@ pub mod pdfwrite;
 pub mod pool;
 pub mod protocol;
 pub mod sheets;
+pub mod textedit;
 pub mod worker;
 
 use pool::{JobError, Pool, Prio};
@@ -317,6 +318,17 @@ fn crash_a_worker(state: tauri::State<'_, AppState>) {
 }
 
 #[tauri::command]
+async fn text_at(state: tauri::State<'_, AppState>, doc: u64, page: u32, x: f32, y: f32) -> Result<serde_json::Value, String> {
+    let d = state.doc(doc)?;
+    let r = state
+        .pool
+        .run(Request::TextAt { path: d.path.clone(), page, x, y }, Prio::Interactive)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(r.data)
+}
+
+#[tauri::command]
 async fn select_text(state: tauri::State<'_, AppState>, doc: u64, page: u32, rect: [f32; 4]) -> Result<serde_json::Value, String> {
     let d = state.doc(doc)?;
     let r = state
@@ -382,6 +394,7 @@ async fn save_markups(
     dest: Option<String>,
     labels: Option<Vec<String>>,
     rotate: Option<Vec<[i64; 2]>>,
+    edits: Option<serde_json::Value>,
 ) -> Result<String, String> {
     let d = state.doc(doc)?;
     let src = d.path.clone();
@@ -392,7 +405,7 @@ async fn save_markups(
     let tmp = format!("{target}.saving-{}.tmp", std::process::id());
     let job = serde_json::json!({
         "src": src, "dest": tmp, "author": author_name(), "markups": markups,
-        "labels": labels, "rotate": rotate,
+        "labels": labels, "rotate": rotate, "edits": edits.unwrap_or(serde_json::json!([])),
     });
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let pdfium = state.pdfium.clone();
@@ -543,6 +556,7 @@ pub fn run() {
             extract,
             initial_files,
             crash_a_worker,
+            text_at,
             select_text,
             render_region,
             copy_text,

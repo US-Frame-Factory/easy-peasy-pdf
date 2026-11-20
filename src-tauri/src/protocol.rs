@@ -25,6 +25,8 @@ pub enum Request {
     /// Any region of a page at `scale` px/pt. `rect` = display points [x, y, w, h].
     /// Body = raw top-down BGRA pixels; data = { w, h }.
     Region { path: String, page: u32, scale: f64, rect: [f32; 4] },
+    /// The editable text object at a display point: { index, text, quad, size, color, font, … }.
+    TextAt { path: String, page: u32, x: f32, y: f32 },
     /// Test hook: makes the worker abort, to exercise crash recovery.
     Crash,
 }
