@@ -31,6 +31,8 @@ struct Doc {
     /// Sheet name per page: bookmark title, else PDF page label, else the
     /// sheet number read from the title block.
     labels: RwLock<Vec<Option<String>>>,
+    /// Title-block sheet number and title per page (for "Rename sheets").
+    sheets: RwLock<Vec<(Option<String>, Option<String>)>>,
 }
 
 pub struct AppState {
@@ -131,6 +133,7 @@ async fn open_doc(app: tauri::AppHandle, state: tauri::State<'_, AppState>, path
         text: RwLock::new((0..n).map(|_| None).collect()),
         indexed: AtomicU64::new(0),
         labels: RwLock::new(labels),
+        sheets: RwLock::new(vec![(None, None); n]),
     });
     state.docs.write().unwrap().insert(id, doc.clone());
 
@@ -146,6 +149,8 @@ async fn open_doc(app: tauri::AppHandle, state: tauri::State<'_, AppState>, path
         tauri::async_runtime::spawn(async move {
             let text = match rx.await {
                 Ok(Ok(r)) => {
+                    doc.sheets.write().unwrap()[page] =
+                        (r.data["sheet"].as_str().map(String::from), r.data["title"].as_str().map(String::from));
                     let pdf_label = r.data["label"].as_str().filter(|l| l.parse::<u64>().is_err());
                     if let Some(l) = pdf_label.or(r.data["sheet"].as_str()) {
                         doc.labels.write().unwrap()[page].get_or_insert_with(|| l.to_string());
@@ -175,6 +180,27 @@ async fn open_doc(app: tauri::AppHandle, state: tauri::State<'_, AppState>, path
 
     let name = Path::new(&path).file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| path.clone());
     Ok(DocInfo { id, path, name, pages })
+}
+
+#[derive(Serialize)]
+struct SheetInfo {
+    numbers: Vec<Option<String>>,
+    titles: Vec<Option<String>>,
+    /// Current page labels from the PDF (or bookmarks / detected numbers).
+    labels: Vec<Option<String>>,
+    indexed: u64,
+    total: usize,
+}
+
+#[tauri::command]
+fn sheet_info(state: tauri::State<'_, AppState>, doc: u64) -> Result<SheetInfo, String> {
+    let d = state.doc(doc)?;
+    let (numbers, titles) = {
+        let sh = d.sheets.read().unwrap();
+        (sh.iter().map(|s| s.0.clone()).collect(), sh.iter().map(|s| s.1.clone()).collect())
+    };
+    let labels = d.labels.read().unwrap().clone();
+    Ok(SheetInfo { numbers, titles, labels, indexed: d.indexed.load(Ordering::Relaxed), total: d.pages })
 }
 
 #[tauri::command]
@@ -349,7 +375,14 @@ fn author_name() -> String {
 /// Writes markups into the PDF as annotations, in a separate process.
 /// `dest` = None saves into the open file itself (written to a temp file, then swapped in).
 #[tauri::command]
-async fn save_markups(state: tauri::State<'_, AppState>, doc: u64, markups: serde_json::Value, dest: Option<String>) -> Result<String, String> {
+async fn save_markups(
+    state: tauri::State<'_, AppState>,
+    doc: u64,
+    markups: serde_json::Value,
+    dest: Option<String>,
+    labels: Option<Vec<String>>,
+    rotate: Option<Vec<[i64; 2]>>,
+) -> Result<String, String> {
     let d = state.doc(doc)?;
     let src = d.path.clone();
     let target = match dest {
@@ -357,7 +390,10 @@ async fn save_markups(state: tauri::State<'_, AppState>, doc: u64, markups: serd
         _ => src.clone(),
     };
     let tmp = format!("{target}.saving-{}.tmp", std::process::id());
-    let job = serde_json::json!({ "src": src, "dest": tmp, "author": author_name(), "markups": markups });
+    let job = serde_json::json!({
+        "src": src, "dest": tmp, "author": author_name(), "markups": markups,
+        "labels": labels, "rotate": rotate,
+    });
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let pdfium = state.pdfium.clone();
     let out = tauri::async_runtime::spawn_blocking(move || -> Result<serde_json::Value, String> {
@@ -501,6 +537,7 @@ pub fn run() {
             open_doc,
             close_doc,
             labels,
+            sheet_info,
             search,
             find,
             extract,

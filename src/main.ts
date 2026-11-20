@@ -5,7 +5,7 @@ import { api, DocInfo, Hit } from './api';
 import { formatRanges, parseRanges } from './ranges';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { initUpdates } from './updates';
-import { isKind, KIND_NAMES, Markups, marksOf, measureText, Tool } from './markup';
+import { FontName, isKind, Kind, KIND_NAMES, Markups, marksOf, measureText, Tool } from './markup';
 import { FORMATS, getScale, NumberFormat, parseLength, PRESETS, scaleLabel, setScale } from './measure';
 import { DocState, Mode, Viewer } from './viewer';
 
@@ -35,12 +35,15 @@ const marks = new Markups({
     renderTabs();
     updateToolbar();
   },
-  toolChanged: () => updateToolbar(),
+  toolChanged: () => {
+    updateToolbar();
+    renderProps();
+  },
   needScale: (info, page) => askScale(info, page, 'Set the drawing scale before measuring.'),
   calibrated: (info, page, len) => askCalibration(info, page, len),
   selectionChanged: () => {
     updateToolbar();
-    renderStylePop();
+    renderProps();
   },
 });
 
@@ -238,7 +241,9 @@ function updatePageBox() {
   $('sheet-label').textContent = lbl ?? '';
   $('sheet-label').title = lbl ? `Sheet ${lbl}` : '';
   const sc = d ? getScale(d.info.path, page) : null;
-  $('btn-scale').textContent = sc ? `Scale: ${scaleLabel(sc)}` : 'Scale: not set';
+  $('btn-scale').innerHTML = '';
+  $('btn-scale').append('Scale', document.createElement('br'), Object.assign(document.createElement('b'), { textContent: sc ? scaleLabel(sc).replace(' (calibrated)', '*') : 'not set' }));
+  $('btn-scale').title = sc ? `Page scale: ${scaleLabel(sc)} (click to change)` : 'Set the page scale (click)';
 }
 
 function updateToolbar() {
@@ -258,7 +263,7 @@ function updateToolbar() {
   const n = d?.selected.size ?? 0;
   $('btn-extract').textContent = n > 0 ? `Extract ${n}…` : 'Extract…';
   for (const id of ['btn-zoom-out', 'btn-zoom-in', 'btn-fit', 'btn-extract']) $<HTMLButtonElement>(id).disabled = !d;
-  for (const b of $('tools').querySelectorAll<HTMLButtonElement>('button[data-tool]')) {
+  for (const b of $('rail').querySelectorAll<HTMLButtonElement>('button[data-tool]')) {
     b.classList.toggle('on', b.dataset.tool === marks.tool);
     b.disabled = !d;
   }
@@ -269,7 +274,7 @@ function updateToolbar() {
   $<HTMLButtonElement>('btn-save').disabled = !d;
   $('btn-save').textContent = mk?.dirty && mk.markups.length ? `Save (${mk.markups.length})` : 'Save';
   $<HTMLButtonElement>('btn-scale').disabled = !d;
-  $<HTMLButtonElement>('btn-style').disabled = !d;
+  for (const id of ['btn-rotate', 'btn-rename']) $<HTMLButtonElement>(id).disabled = !d;
   pageInput.disabled = !d;
   updatePageBox();
 }
@@ -678,11 +683,21 @@ pageInput.addEventListener('blur', () => updatePageBox());
 
 const unsavedCount = (d: DocInfo) => (d.marks?.dirty ? d.marks.markups.length : 0);
 
-/** Writes the markups into the PDF (or a copy) and reloads it in place. */
-async function saveDoc(d: DocInfo, saveAs = false): Promise<boolean> {
+interface SaveOpts {
+  saveAs?: boolean;
+  /** New page labels ("Rename sheets"). */
+  labels?: string[];
+  /** [page, quarter turns clockwise] */
+  rotate?: [number, number][];
+}
+
+/** Writes markups (and page names / rotation) into the PDF (or a copy) and reloads it in place. */
+async function saveDoc(d: DocInfo, opts: SaveOpts | boolean = {}): Promise<boolean> {
+  const o: SaveOpts = typeof opts === 'boolean' ? { saveAs: opts } : opts;
+  const saveAs = !!o.saveAs;
   marks.commitEdit();
   const mk = marksOf(d);
-  if (!mk.markups.length && !saveAs) {
+  if (!mk.markups.length && !saveAs && !o.labels && !o.rotate) {
     toast('No new markups to save.');
     return true;
   }
@@ -696,15 +711,22 @@ async function saveDoc(d: DocInfo, saveAs = false): Promise<boolean> {
     dest = /\.pdf$/i.test(picked) ? picked : `${picked}.pdf`;
   }
   const payload = mk.markups.map((m) => ({ ...m, text: m.kind === 'measure' ? measureText(m) : m.text }));
-  toast(`Saving ${payload.length} markup${payload.length === 1 ? '' : 's'}…`, false, 1500);
+  const what = [
+    payload.length ? `${payload.length} markup${payload.length === 1 ? '' : 's'}` : '',
+    o.labels ? 'sheet names' : '',
+    o.rotate ? `rotation of ${o.rotate.length} page${o.rotate.length === 1 ? '' : 's'}` : '',
+  ]
+    .filter(Boolean)
+    .join(' + ');
+  toast(`Saving ${what}…`, false, 1500);
   try {
-    const written = await api.saveMarkups(d.id, payload, dest);
+    const written = await api.saveMarkups(d.id, payload, dest, o.labels, o.rotate);
     const info = await api.openDoc(written);
     info.labels = d.labels?.length === info.pages.length ? d.labels : new Array(info.pages.length).fill(null);
     marks.clearSaved(d);
     replaceDoc(d, info);
     scheduleLabels(info);
-    toast(`Saved ${payload.length} markup${payload.length === 1 ? '' : 's'} into ${info.name}`);
+    toast(`Saved ${what} into ${info.name}`);
     return true;
   } catch (err) {
     toast(`Save failed: ${err}`, true);
@@ -733,6 +755,7 @@ function replaceDoc(old: DocInfo, info: DocInfo) {
   api.closeDoc(old.id).catch(() => {});
   renderTabs();
   updateToolbar();
+  renderProps();
   if (searchOpen()) runSearch(true);
 }
 
@@ -803,7 +826,7 @@ function askScale(info: DocInfo, page: number, note = ''): Promise<number | null
         } else {
           if (v === 'calibrate') {
             marks.setTool('calibrate');
-            toast('Calibrate: drag along a dimension you know (Shift keeps it straight).', false);
+            toast('Calibrate: click both ends of a dimension you know (Shift keeps it straight).');
           }
           resolve(null);
         }
@@ -813,22 +836,32 @@ function askScale(info: DocInfo, page: number, note = ''): Promise<number | null
   });
 }
 
-const calibDlg = $<HTMLDialogElement>('calib-dialog');
+// Calibration: a floating panel (not a modal) so you can still pan / zoom to check the line.
+const calibPanel = $('calib-panel');
 const calibInput = $<HTMLInputElement>('calib-length');
 let calibPending: { info: DocInfo; page: number; len: number } | null = null;
 
 function askCalibration(info: DocInfo, page: number, len: number) {
+  const first = calibPanel.hidden;
   calibPending = { info, page, len };
   $('calib-error').textContent = '';
-  calibInput.value = '';
-  calibDlg.showModal();
-  calibInput.focus();
+  calibPanel.hidden = false;
+  if (first) {
+    calibInput.value = '';
+    calibInput.focus();
+  }
 }
 
-$('calib-ok').addEventListener('click', (e) => {
-  e.preventDefault();
+function closeCalibration(applied: boolean) {
+  calibPanel.hidden = true;
+  calibPending = null;
+  marks.clearCalib();
+  if (!applied && marks.tool === 'calibrate') marks.setTool('pan');
+}
+
+function applyCalibration() {
   const c = calibPending;
-  if (!c) return calibDlg.close();
+  if (!c) return closeCalibration(false);
   const inches = parseLength(calibInput.value);
   if (!inches || inches <= 0) {
     $('calib-error').textContent = 'Type a length, e.g. 17\'6 1/2" or 210" or 5.3m';
@@ -837,15 +870,18 @@ $('calib-ok').addEventListener('click', (e) => {
   const all = (document.querySelector<HTMLInputElement>('input[name=calib-apply]:checked')?.value ?? 'all') === 'all';
   const s = inches / c.len;
   setScale(c.info.path, all ? 'all' : c.page, s);
-  calibPending = null;
-  calibDlg.close();
+  closeCalibration(true);
   marks.setTool('measure');
   updatePageBox();
   toast(`Scale set: ${scaleLabel(s)}. Measure tool is on.`);
-});
-calibDlg.addEventListener('close', () => {
-  if (calibPending) marks.setTool('pan');
-  calibPending = null;
+}
+
+$('calib-ok').onclick = applyCalibration;
+$('calib-cancel').onclick = () => closeCalibration(false);
+calibInput.addEventListener('keydown', (e) => {
+  e.stopPropagation();
+  if (e.key === 'Enter') applyCalibration();
+  else if (e.key === 'Escape') closeCalibration(false);
 });
 
 $('btn-scale').onclick = () => {
@@ -853,74 +889,260 @@ $('btn-scale').onclick = () => {
   if (d) askScale(d.info, viewer().currentPage());
 };
 
-// ---------- style panel ----------
+// ---------- properties bar (style of the current tool or selected markup) ----------
 
-const stylePop = $('style-pop');
-const fmtSel = $<HTMLSelectElement>('st-format');
+const SWATCHES = ['#ff0000', '#ff7a00', '#ffe600', '#00a650', '#0050ff', '#9b30ff', '#ff00c8', '#000000', '#ffffff'];
+const SHOW: Record<Kind, string[]> = {
+  pen: ['color', 'width', 'opacity'],
+  highlight: ['color', 'width', 'opacity'],
+  rect: ['color', 'width', 'opacity'],
+  ellipse: ['color', 'width', 'opacity'],
+  text: ['color', 'textColor', 'width', 'font', 'size', 'opacity'],
+  callout: ['color', 'textColor', 'width', 'font', 'size', 'opacity'],
+  measure: ['color', 'textColor', 'width', 'font', 'size', 'opacity', 'format'],
+};
+const HINTS: Record<string, string> = {
+  pan: 'Drag to move around · click a markup to select, drag to move, Delete to remove · double-click a text box to edit',
+  'select-text': 'Drag a box around text, then Ctrl+C to copy',
+  snapshot: 'Drag a box to copy that area (with markups) as an image',
+  calibrate: 'Click both ends of a dimension you know, then type its length',
+};
+const fmtSel = $<HTMLSelectElement>('p-format');
 for (const f of FORMATS) fmtSel.add(new Option(f.example, f.id));
 
-function renderStylePop() {
-  if (stylePop.hidden) return;
-  const cur = marks.currentStyle();
-  const set = (id: string, v: string | number) => ($<HTMLInputElement>(id).value = String(v));
-  for (const el of stylePop.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select')) el.disabled = !cur;
-  if (!cur) {
-    $('style-for').textContent = 'Pick a markup tool or select a markup';
-    return;
+for (const box of document.querySelectorAll<HTMLElement>('#props .swatches')) {
+  const key = box.dataset.for as 'color' | 'textColor';
+  for (const c of SWATCHES) {
+    const b = document.createElement('button');
+    b.className = 'sw';
+    b.style.background = c;
+    b.dataset.c = c;
+    b.title = c;
+    b.onclick = () => {
+      marks.setStyle({ [key]: c });
+      renderProps();
+    };
+    box.appendChild(b);
   }
+}
+
+function renderProps() {
+  const cur = marks.currentStyle();
+  const bar = $('props');
+  const tool = marks.tool;
+  $('props-title').textContent = cur ? `${KIND_NAMES[cur.kind]}${marks.selected ? ' (selected)' : ''}` : TOOL_NAMES[tool] ?? '';
+  $('props-hint').textContent = cur ? '' : HINTS[tool] ?? '';
+  const show = new Set(cur ? SHOW[cur.kind] : []);
+  for (const g of bar.querySelectorAll<HTMLElement>('.pgroup')) g.hidden = !show.has(g.dataset.p!);
+  $<HTMLButtonElement>('p-delete').hidden = !marks.selected;
+  if (!cur) return;
   const s = cur.style;
-  $('style-for').textContent = `${KIND_NAMES[cur.kind]}${marks.selected ? ' (selected)' : ''}`;
-  set('st-color', s.color);
-  set('st-textColor', s.textColor);
-  set('st-width', s.width);
-  set('st-width-n', s.width);
-  set('st-size', s.size);
-  set('st-size-n', s.size);
-  set('st-opacity', Math.round(s.opacity * 100));
-  set('st-opacity-n', Math.round(s.opacity * 100));
+  const setV = (id: string, v: string | number) => {
+    const el = $<HTMLInputElement>(id);
+    if (document.activeElement !== el) el.value = String(v);
+  };
+  setV('p-color', s.color);
+  setV('p-textColor', s.textColor);
+  setV('p-width', s.width);
+  setV('p-width-n', s.width);
+  setV('p-size', s.size);
+  setV('p-opacity', Math.round(s.opacity * 100));
+  $('p-opacity-v').textContent = `${Math.round(s.opacity * 100)}%`;
+  $<HTMLSelectElement>('p-font').value = s.font;
   fmtSel.value = s.format;
+  $('p-bold').classList.toggle('on', s.bold);
+  $('p-italic').classList.toggle('on', s.italic);
+  $('p-underline').classList.toggle('on', s.underline);
+  for (const sw of bar.querySelectorAll<HTMLElement>('.sw')) {
+    const key = (sw.parentElement as HTMLElement).dataset.for as 'color' | 'textColor';
+    sw.classList.toggle('on', s[key].toLowerCase() === sw.dataset.c);
+  }
 }
 
-$('btn-style').onclick = () => {
-  stylePop.hidden = !stylePop.hidden;
-  renderStylePop();
-};
-$('style-close').onclick = () => (stylePop.hidden = true);
-const styleInput = (id: string, apply: (v: string) => void) => {
+const propInput = (id: string, ev: 'input' | 'change', apply: (v: string) => void) => {
   const el = $<HTMLInputElement>(id);
-  el.addEventListener('input', () => {
+  el.addEventListener(ev, () => {
     apply(el.value);
-    renderStylePop();
+    renderProps();
   });
+  el.addEventListener('keydown', (e) => e.stopPropagation());
 };
-styleInput('st-color', (v) => marks.setStyle({ color: v }));
-styleInput('st-textColor', (v) => marks.setStyle({ textColor: v }));
-for (const k of ['width', 'size'] as const) {
-  styleInput(`st-${k}`, (v) => marks.setStyle({ [k]: Number(v) }));
-  styleInput(`st-${k}-n`, (v) => Number(v) >= 0 && marks.setStyle({ [k]: Number(v) }));
-}
-styleInput('st-opacity', (v) => marks.setStyle({ opacity: Number(v) / 100 }));
-styleInput('st-opacity-n', (v) => Number(v) > 0 && marks.setStyle({ opacity: Math.min(100, Number(v)) / 100 }));
-fmtSel.addEventListener('change', () => {
-  marks.setStyle({ format: fmtSel.value as NumberFormat });
-  renderStylePop();
-});
-
-// ---------- tool bar ----------
-
-for (const b of $('tools').querySelectorAll<HTMLButtonElement>('button[data-tool]')) {
-  b.onclick = () => {
-    marks.setTool(b.dataset.tool as Tool);
-    if (isKind(marks.tool) && active()?.mode === 'grid') viewer().setMode('scroll');
-    renderStylePop();
-    focused.scroller.focus({ preventScroll: true });
+propInput('p-color', 'input', (v) => marks.setStyle({ color: v }));
+propInput('p-textColor', 'input', (v) => marks.setStyle({ textColor: v }));
+propInput('p-width', 'input', (v) => marks.setStyle({ width: Number(v) }));
+propInput('p-width-n', 'change', (v) => Number(v) >= 0 && marks.setStyle({ width: Number(v) }));
+propInput('p-size', 'change', (v) => Number(v) >= 4 && marks.setStyle({ size: Number(v) }));
+propInput('p-opacity', 'input', (v) => marks.setStyle({ opacity: Number(v) / 100 }));
+propInput('p-font', 'change', (v) => marks.setStyle({ font: v as FontName }));
+propInput('p-format', 'change', (v) => marks.setStyle({ format: v as NumberFormat }));
+for (const k of ['bold', 'italic', 'underline'] as const) {
+  $(`p-${k}`).onclick = () => {
+    const cur = marks.currentStyle();
+    if (cur) marks.setStyle({ [k]: !cur.style[k] });
+    renderProps();
   };
 }
+$('p-delete').onclick = () => marks.deleteSelected();
+
+// ---------- tool rail ----------
+
+const TOOL_NAMES: Record<string, string> = {};
+for (const b of $('rail').querySelectorAll<HTMLButtonElement>('button[data-tool]')) {
+  TOOL_NAMES[b.dataset.tool!] = b.querySelector('span')?.textContent ?? '';
+  b.onclick = () => selectTool(b.dataset.tool as Tool);
+}
+TOOL_NAMES['select-text'] = 'Select text';
+
+function selectTool(t: Tool) {
+  if (!active()) return;
+  if (t !== 'calibrate' && !calibPanel.hidden) closeCalibration(false);
+  marks.setTool(t);
+  if ((isKind(marks.tool) || t === 'calibrate') && active()?.mode === 'grid') viewer().setMode('scroll');
+  renderProps();
+  focused.scroller.focus({ preventScroll: true });
+}
+
 $('btn-undo').onclick = () => active() && marks.undo(active()!.info);
 $('btn-redo').onclick = () => active() && marks.redo(active()!.info);
 $('btn-save').onclick = () => active() && saveDoc(active()!.info);
 
+// ---------- rotate ----------
+
+const rotateMenu = $('rotate-menu');
+$('btn-rotate').onclick = (e) => {
+  e.stopPropagation();
+  const d = active();
+  if (!d) return;
+  for (const b of rotateMenu.querySelectorAll<HTMLButtonElement>('.needs-sel')) b.hidden = !(d.mode === 'grid' && d.selected.size);
+  rotateMenu.hidden = !rotateMenu.hidden;
+};
+document.addEventListener('click', () => (rotateMenu.hidden = true));
+for (const b of rotateMenu.querySelectorAll<HTMLButtonElement>('button[data-rot]')) {
+  b.onclick = async () => {
+    rotateMenu.hidden = true;
+    const d = active();
+    if (!d) return;
+    const [which, t] = b.dataset.rot!.split(':');
+    const turns = Number(t);
+    const pages =
+      which === 'all'
+        ? d.info.pages.map((_, i) => i)
+        : which === 'sel'
+          ? [...d.selected].sort((a, b) => a - b)
+          : [viewer().currentPage()];
+    if (!pages.length) return;
+    await saveDoc(d.info, { rotate: pages.map((p) => [p, turns] as [number, number]) });
+  };
+}
+
+// ---------- rename sheets ----------
+
+const renameDlg = $<HTMLDialogElement>('rename-dialog');
+const renameBody = $('rename-table').querySelector('tbody')!;
+let renameRows: { num: HTMLInputElement; title: HTMLInputElement; out: HTMLElement; touched: boolean }[] = [];
+let renameTimer = 0;
+
+function renameName(i: number): string {
+  const r = renameRows[i];
+  const n = r.num.value.trim();
+  const t = r.title.value.trim();
+  const f = $<HTMLSelectElement>('rename-format').value;
+  if (f === 'n') return n || t;
+  if (f === 't') return t || n;
+  return n && t ? `${n} - ${t}` : n || t;
+}
+
+function renameRefresh() {
+  renameRows.forEach((r, i) => (r.out.textContent = renameName(i) || `(page ${i + 1})`));
+}
+
+async function renameFill(d: DocInfo) {
+  try {
+    const info = await api.sheetInfo(d.id);
+    info.numbers.forEach((n, i) => {
+      const r = renameRows[i];
+      if (!r || r.touched) return;
+      if (n && !r.num.value) r.num.value = n;
+      const t = info.titles[i];
+      if (t && !r.title.value) r.title.value = t;
+    });
+    renameRefresh();
+    const busy = info.indexed < info.total;
+    const found = info.numbers.filter(Boolean).length;
+    $('rename-status').textContent = busy
+      ? `Reading title blocks… ${info.indexed}/${info.total}`
+      : `Found ${found} of ${info.total} sheet numbers. Fill in any blanks.`;
+    if (busy && renameDlg.open) renameTimer = window.setTimeout(() => renameFill(d), 500);
+  } catch (e) {
+    $('rename-status').textContent = `Couldn't read sheet names: ${e}`;
+  }
+}
+
+function openRename() {
+  const d = active();
+  if (!d) return;
+  clearTimeout(renameTimer);
+  renameBody.textContent = '';
+  renameRows = d.info.pages.map((_, i) => {
+    const tr = document.createElement('tr');
+    const pg = document.createElement('td');
+    pg.textContent = String(i + 1);
+    pg.className = 'pg';
+    const mk = (cls: string) => {
+      const td = document.createElement('td');
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.className = cls;
+      inp.spellcheck = false;
+      td.appendChild(inp);
+      tr.appendChild(td);
+      return inp;
+    };
+    tr.appendChild(pg);
+    const num = mk('num');
+    const title = mk('title');
+    const out = document.createElement('td');
+    out.className = 'out';
+    tr.appendChild(out);
+    renameBody.appendChild(tr);
+    const row = { num, title, out, touched: false };
+    for (const inp of [num, title]) {
+      inp.addEventListener('input', () => {
+        row.touched = true;
+        renameRefresh();
+      });
+      inp.addEventListener('focus', () => viewer().scrollToPage(i));
+    }
+    return row;
+  });
+  $('rename-error').textContent = '';
+  renameDlg.returnValue = 'cancel';
+  renameDlg.showModal();
+  renameFill(d.info);
+}
+
+$('rename-format').addEventListener('change', renameRefresh);
+$('btn-rename').onclick = openRename;
+renameDlg.addEventListener('close', () => clearTimeout(renameTimer));
+$('rename-go').addEventListener('click', async (e) => {
+  e.preventDefault();
+  const d = active();
+  if (!d) return;
+  const labels = renameRows.map((_, i) => renameName(i));
+  if (!labels.some(Boolean)) {
+    $('rename-error').textContent = 'No names to apply.';
+    return;
+  }
+  renameDlg.close();
+  await saveDoc(d.info, { labels });
+});
+
 // ---------- keyboard ----------
+
+const TOOL_KEYS: Record<string, Tool> = {};
+for (const b of $('rail').querySelectorAll<HTMLButtonElement>('button[data-tool]')) {
+  if (b.dataset.key) TOOL_KEYS[b.dataset.key.toLowerCase()] = b.dataset.tool as Tool;
+}
 
 window.addEventListener('keydown', (e) => {
   const mod = e.ctrlKey || e.metaKey;
@@ -990,6 +1212,9 @@ window.addEventListener('keydown', (e) => {
   } else if (mod && key === 'a' && !inField && d?.mode === 'grid') {
     e.preventDefault();
     viewer().selectAll();
+  } else if (!mod && !e.altKey && !inField && TOOL_KEYS[key] && d) {
+    e.preventDefault();
+    selectTool(TOOL_KEYS[key]);
   } else if (e.key === 'F3') {
     e.preventDefault();
     gotoHit(e.shiftKey ? curHit - 1 : curHit + 1);
@@ -998,8 +1223,8 @@ window.addEventListener('keydown', (e) => {
       d.selected.clear();
       viewer().refreshSelection();
     } else {
-      stylePop.hidden = true;
-      marks.escape();
+      if (!calibPanel.hidden) closeCalibration(false);
+      else marks.escape();
     }
   } else if (mod && e.shiftKey && e.altKey && key === 'k') {
     // Hidden: kill a render worker to demonstrate crash recovery.
@@ -1040,6 +1265,7 @@ getCurrentWebview()
 listen<string[]>('open-files', (e) => openPaths(e.payload));
 
 initUpdates(toast);
+renderProps();
 
 focused.el.classList.add('focused');
 focused.renderHead();

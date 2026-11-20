@@ -100,7 +100,7 @@ pub fn run(args: &[String]) -> i32 {
             if let Ok(Ok(r)) = rx.await {
                 chars += r.body.len();
                 if std::env::var_os("EPP_LABELS").is_some() {
-                    println!("  sheet {:?} title {:?} label {:?}", r.data["sheet"], r.data["title"], r.data["label"]);
+                    println!("  {}\t{}\t{}", r.data["sheet"].as_str().unwrap_or("-"), r.data["title"].as_str().unwrap_or("-"), r.data["label"].as_str().unwrap_or(""));
                 }
             }
         }

@@ -35,6 +35,12 @@ struct Job {
     #[serde(default)]
     author: String,
     markups: Vec<Markup>,
+    /// New page labels (one per page) — "Rename sheets".
+    #[serde(default)]
+    labels: Option<Vec<String>>,
+    /// [page, quarter turns clockwise] — "Rotate".
+    #[serde(default)]
+    rotate: Option<Vec<[i64; 2]>>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -49,6 +55,14 @@ pub struct Style {
     pub(crate) size: f32,
     #[serde(default = "one")]
     pub(crate) opacity: f32,
+    #[serde(default)]
+    pub(crate) font: String,
+    #[serde(default)]
+    pub(crate) bold: bool,
+    #[serde(default)]
+    pub(crate) italic: bool,
+    #[serde(default)]
+    pub(crate) underline: bool,
 }
 fn red() -> String {
     "#ff0000".into()
@@ -444,8 +458,10 @@ fn save(lib: &PathBuf, job: Job) -> Result<usize, String> {
     // Preferred: a minimal incremental update (only the new annotations and their pages).
     let date = pdf_date();
     let src = std::fs::read(&job.src).map_err(|e| format!("cannot read {}: {e}", job.src))?;
-    match crate::pdfwrite::save(src, &job.dest, &job.author, &date, &job.markups) {
+    let extras = crate::pdfwrite::Extras { labels: job.labels.clone(), rotate: job.rotate.clone().unwrap_or_default() };
+    match crate::pdfwrite::save(src, &job.dest, &job.author, &date, &job.markups, &extras) {
         Ok(n) => return Ok(n),
+        Err(e) if extras.labels.is_some() || !extras.rotate.is_empty() => return Err(e),
         Err(e) => eprintln!("[save] minimal update failed ({e}); falling back to PDFium"),
     }
     let b = Pdfium::bind_to_library(lib).map_err(|e| format!("cannot load PDFium: {e}"))?;

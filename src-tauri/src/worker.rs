@@ -350,8 +350,61 @@ fn handle(cache: &mut Cache, req: Request) -> OpResult {
                 })
                 .collect();
             let sheet = sheets::sheet_number(&runs, pw, ph);
+            // Sheet title: find a "DWG TITLE" / "SHEET TITLE" label with PDFium's search,
+            // then read only the runs just below it.
+            let mut title: Option<String> = None;
+            if let Ok(search) = text.search("title", &PdfSearchOptions::new()) {
+                let boxes: Vec<[f32; 4]> = segs.iter().map(|sg| xf.apply(&sg.bounds())).collect();
+                let mut tries = 0;
+                while let Some(m) = search.find_next() {
+                    tries += 1;
+                    if tries > 25 || title.is_some() {
+                        break;
+                    }
+                    let Some(mb) = m.iter().next().map(|sg| xf.apply(&sg.bounds())) else { continue };
+                    let (mx, my) = (mb[0] + mb[2] / 2.0, mb[1] + mb[3] / 2.0);
+                    let Some(li) = boxes
+                        .iter()
+                        .position(|r| mx >= r[0] - 1.0 && mx <= r[0] + r[2] + 1.0 && my >= r[1] - 1.0 && my <= r[1] + r[3] + 1.0)
+                    else {
+                        continue;
+                    };
+                    let lr = boxes[li];
+                    let Ok(lseg) = segs.get(li as PdfPageTextSegmentIndex) else { continue };
+                    let label = Run { text: lseg.text(), x: lr[0], y: lr[1], w: lr[2], h: lr[3] };
+                    if sheets::title_label_rest(&label.text).is_none() {
+                        continue;
+                    }
+                    let lh = lr[2].min(lr[3]);
+                    let mut below: Vec<(usize, [f32; 4])> = boxes
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, r)| {
+                            let right_edge = lr[0] + lr[2];
+                            // Same row, right of the label (first line of a two-line title)…
+                            let same_row = (r[1] + r[3] / 2.0 - (lr[1] + lr[3] / 2.0)).abs() < lh * 1.2
+                                && r[0] >= right_edge - 2.0
+                                && r[0] <= right_edge + lh * 10.0;
+                            // …or below it, in the same column.
+                            let below = r[1] >= lr[1] + lr[3] * 0.5
+                                && r[1] <= lr[1] + lr[3] + lh * 16.0
+                                && r[0] >= lr[0] - lh * 3.0
+                                && r[0] <= right_edge + lh * 10.0;
+                            *i != li && (same_row || below)
+                        })
+                        .map(|(i, r)| (i, *r))
+                        .collect();
+                    below.sort_by(|a, b| a.1[1].total_cmp(&b.1[1]));
+                    below.truncate(30);
+                    let runs: Vec<Run> = below
+                        .into_iter()
+                        .filter_map(|(i, [x, y, w, h])| Some(Run { text: segs.get(i as PdfPageTextSegmentIndex).ok()?.text(), x, y, w, h }))
+                        .collect();
+                    title = sheets::title_from(&label, &runs);
+                }
+            }
             let label = p.label().map(str::trim).filter(|l| !l.is_empty() && *l != (page + 1).to_string());
-            Ok((json!({ "sheet": sheet, "label": label }), all.into_bytes()))
+            Ok((json!({ "sheet": sheet, "title": title, "label": label }), all.into_bytes()))
         }
         Request::Find { path, page, query } => {
             let p = cache.page(&path, page)?;

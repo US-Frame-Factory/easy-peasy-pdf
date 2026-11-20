@@ -11,7 +11,13 @@ import type { Viewer } from './viewer';
 export type Kind = 'pen' | 'highlight' | 'rect' | 'ellipse' | 'text' | 'callout' | 'measure';
 export type Tool = 'pan' | 'select-text' | 'snapshot' | 'calibrate' | Kind;
 
+export type FontName = 'helvetica' | 'times' | 'courier';
+
 export interface Style {
+  font: FontName;
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
   color: string;
   textColor: string;
   width: number;
@@ -42,10 +48,17 @@ export interface DocMarks {
 type Pt = [number, number];
 
 const SVGNS = 'http://www.w3.org/2000/svg';
-const FONT = 'Helvetica, Arial, sans-serif';
+const FAMILIES: Record<FontName, string> = {
+  helvetica: 'Helvetica, Arial, sans-serif',
+  times: "'Times New Roman', Times, serif",
+  courier: "'Courier New', Courier, monospace",
+};
+const family = (s: Style) => FAMILIES[s.font] ?? FAMILIES.helvetica;
+export const cssFont = (s: Style, size = s.size) => `${s.italic ? 'italic ' : ''}${s.bold ? 'bold ' : ''}${size}px ${family(s)}`;
+const TEXT_BASE = { font: 'helvetica' as FontName, bold: false, italic: false, underline: false };
 
 // Sized for full-size plan sheets (e.g. 36"x24"): readable at "fit width".
-const DEFAULTS: Record<Kind, Style> = {
+const DEFAULTS: Record<Kind, Omit<Style, keyof typeof TEXT_BASE>> = {
   pen: { color: '#ff0000', textColor: '#ff0000', width: 3, size: 28, opacity: 1, format: 'ftinfrac' },
   highlight: { color: '#ffe600', textColor: '#000000', width: 20, size: 28, opacity: 0.4, format: 'ftinfrac' },
   rect: { color: '#ff0000', textColor: '#ff0000', width: 3, size: 28, opacity: 1, format: 'ftinfrac' },
@@ -136,16 +149,17 @@ function calloutFrom(m: Markup): Pt {
 }
 
 const measureCtx = document.createElement('canvas').getContext('2d')!;
-function textWidth(s: string, size: number): number {
-  measureCtx.font = `${size}px ${FONT}`;
+function textWidth(s: string, style: Style): number {
+  measureCtx.font = cssFont(style);
   return measureCtx.measureText(s).width;
 }
 
 /** Text box size that fits `text` (matches the saved layout in annotate.rs). */
-function fitBox(text: string, size: number): [number, number] {
+function fitBox(text: string, style: Style): [number, number] {
+  const size = style.size;
   const lines = (text || ' ').split('\n');
   const pad = size * 0.3;
-  const w = Math.max(...lines.map((l) => textWidth(l, size))) + pad * 2 + size * 0.2;
+  const w = Math.max(...lines.map((l) => textWidth(l, style))) + pad * 2 + size * 0.2;
   const h = pad * 2 + size * (0.9 + (lines.length - 1) * 1.2) + size * 0.3;
   return [Math.max(w, size * 2), h];
 }
@@ -166,7 +180,17 @@ function el<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, 
 function drawMarkup(g: SVGGElement, m: Markup) {
   const s = m.style;
   const stroke = { stroke: s.color, 'stroke-width': s.width, 'stroke-opacity': s.opacity, fill: 'none', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' };
-  const textAttrs = (x: number, y: number) => ({ x, y, 'font-size': s.size, 'font-family': FONT, fill: s.textColor, 'fill-opacity': s.opacity });
+  const textAttrs = (x: number, y: number) => ({
+    x,
+    y,
+    'font-size': s.size,
+    'font-family': family(s),
+    'font-weight': s.bold ? 'bold' : 'normal',
+    'font-style': s.italic ? 'italic' : 'normal',
+    'text-decoration': s.underline ? 'underline' : 'none',
+    fill: s.textColor,
+    'fill-opacity': s.opacity,
+  });
   switch (m.kind) {
     case 'pen':
     case 'highlight':
@@ -237,6 +261,17 @@ interface Draft {
   a: Pt;
   b: Pt;
   pts: Pt[];
+  /** Click-click mode: first point placed, waiting for the second click. */
+  awaiting?: boolean;
+}
+
+/** A dimension line with end bars (calibration line, measure preview). */
+function drawCalibLine(svg: Element, a: Pt, b: Pt, pageW: number) {
+  const len = Math.max(0.001, Math.hypot(b[0] - a[0], b[1] - a[1]));
+  const [nx, ny] = [-(b[1] - a[1]) / len, (b[0] - a[0]) / len];
+  const t = Math.max(6, pageW * 0.004);
+  el('line', { class: 'calib', x1: a[0], y1: a[1], x2: b[0], y2: b[1] }, svg);
+  for (const p of [a, b]) el('line', { class: 'calib end', x1: p[0] - nx * t, y1: p[1] - ny * t, x2: p[0] + nx * t, y2: p[1] + ny * t }, svg);
 }
 
 interface Move {
@@ -274,6 +309,14 @@ export class Markups {
   private attached: Attached[] = [];
   private editing: { info: DocInfo; id: string; ta: HTMLTextAreaElement; isNew: boolean } | null = null;
   spaceDown = false;
+  /** Last calibration line, shown while its length is being entered. */
+  calib: { info: DocInfo; page: number; a: Pt; b: Pt } | null = null;
+
+  clearCalib() {
+    const c = this.calib;
+    this.calib = null;
+    if (c) this.refresh(c.info, c.page);
+  }
 
   constructor(private hooks: Hooks) {
     let saved: Partial<Record<Kind, Style>> = {};
@@ -283,7 +326,7 @@ export class Markups {
       /* ignore */
     }
     this.styles = Object.fromEntries(
-      (Object.keys(DEFAULTS) as Kind[]).map((k) => [k, { ...DEFAULTS[k], ...(saved[k] ?? {}) }]),
+      (Object.keys(DEFAULTS) as Kind[]).map((k) => [k, { ...TEXT_BASE, ...DEFAULTS[k], ...(saved[k] ?? {}) }]),
     ) as Record<Kind, Style>;
   }
 
@@ -352,6 +395,9 @@ export class Markups {
     if (ts && ts.info === info && ts.page === page) {
       for (const [x, y, w, h] of ts.rects) el('rect', { class: 'tsel', x, y, width: w, height: h }, svg);
     }
+    // Calibration line being confirmed
+    const c = this.calib;
+    if (c && c.info === info && c.page === page && !(this.draft && this.draft.tool === 'calibrate')) drawCalibLine(svg, c.a, c.b, info.pages[page][0]);
     // Draft (in progress)
     const d = this.draft;
     if (d && this.draftInfo === info && d.page === page) this.drawDraft(svg, d);
@@ -366,7 +412,7 @@ export class Markups {
       return;
     }
     if (d.tool === 'calibrate') {
-      el('line', { class: 'calib', x1: ax, y1: ay, x2: bx, y2: by }, svg);
+      drawCalibLine(svg, d.a, d.b, this.draftInfo!.pages[d.page][0]);
       return;
     }
     if (!isKind(d.tool)) return;
@@ -398,7 +444,7 @@ export class Markups {
       this.record(this.selected.info);
       m.style = { ...m.style, ...patch };
       if (m.box && (m.kind === 'text' || m.kind === 'callout')) {
-        const [w, h] = fitBox(m.text, m.style.size);
+        const [w, h] = fitBox(m.text, m.style);
         m.box = [m.box[0], m.box[1], w, h];
       }
       this.changed(this.selected.info, m.page);
@@ -547,6 +593,23 @@ export class Markups {
       return;
     }
 
+    const pending = this.draft;
+    if (pending?.awaiting && this.draftInfo === info) {
+      // Second click of a click-click line.
+      e.preventDefault();
+      e.stopPropagation();
+      const at2 = viewer.pageAt(e.clientX, e.clientY, pending.page);
+      if (at2) {
+        const [pw, ph] = info.pages[pending.page];
+        let p2: Pt = [Math.max(0, Math.min(pw, at2.x)), Math.max(0, Math.min(ph, at2.y))];
+        if (e.shiftKey) p2 = this.constrain(pending, p2);
+        pending.b = p2;
+      }
+      this.draft = null;
+      this.draftInfo = null;
+      this.finish(viewer, info, pending);
+      return;
+    }
     if (!at) return;
     e.preventDefault();
     e.stopPropagation();
@@ -622,9 +685,20 @@ export class Markups {
     }
     const d = this.draft;
     const info = this.draftInfo;
-    if (!d || !info || viewer.doc?.info !== info) return;
+    if (!d || !info || viewer.doc?.info !== info || d.awaiting) return;
+    const clickOnly = Math.hypot(d.b[0] - d.a[0], d.b[1] - d.a[1]) * viewer.cssScale() < 4;
+    if (clickOnly && (d.tool === 'measure' || d.tool === 'calibrate')) {
+      // A click (no drag) starts a click-click line: the next click sets the other end.
+      d.awaiting = true;
+      this.hooks.toast(d.tool === 'measure' ? 'Click the second point (Esc to cancel)' : 'Click the other end of the known dimension');
+      return;
+    }
     this.draft = null;
     this.draftInfo = null;
+    await this.finish(viewer, info, d);
+  }
+
+  private async finish(viewer: Viewer, info: DocInfo, d: Draft) {
     const sizePx = Math.hypot(d.b[0] - d.a[0], d.b[1] - d.a[1]) * viewer.cssScale();
     switch (d.tool) {
       case 'select-text': {
@@ -650,8 +724,12 @@ export class Markups {
         return;
       }
       case 'calibrate': {
+        if (sizePx < 6) {
+          this.refresh(info, d.page);
+          return this.hooks.toast('Click both ends of a known dimension.');
+        }
+        this.calib = { info, page: d.page, a: d.a, b: d.b };
         this.refresh(info, d.page);
-        if (sizePx < 6) return this.hooks.toast('Drag between two points of a known distance.');
         this.hooks.calibrated(info, d.page, Math.hypot(d.b[0] - d.a[0], d.b[1] - d.a[1]));
         return;
       }
@@ -720,7 +798,7 @@ export class Markups {
   private startText(info: DocInfo, page: number, at: Pt, tip: Pt | null) {
     const kind: Kind = tip ? 'callout' : 'text';
     const style = { ...this.styles[kind] };
-    const [w, h] = fitBox('', style.size);
+    const [w, h] = fitBox('', style);
     const box: [number, number, number, number] = tip ? [at[0], at[1] - h / 2, w, h] : [at[0], at[1], w, h];
     const m: Markup = { id: newId(), page, kind, pts: tip ? [tip] : [], box, text: '', style };
     // Not recorded yet: an empty box is dropped when editing ends.
@@ -741,7 +819,7 @@ export class Markups {
     const k = viewer.cssScale();
     const place = () => {
       const [x, y] = m.box!;
-      const [w, h] = fitBox(ta.value, m.style.size);
+      const [w, h] = fitBox(ta.value, m.style);
       m.box = [x, y, w, h];
       Object.assign(ta.style, {
         left: `${(x / pw) * 100}%`,
@@ -749,6 +827,10 @@ export class Markups {
         width: `${(w + m.style.size) * k}px`,
         height: `${h * k}px`,
         fontSize: `${m.style.size * k}px`,
+        fontFamily: family(m.style),
+        fontWeight: m.style.bold ? 'bold' : 'normal',
+        fontStyle: m.style.italic ? 'italic' : 'normal',
+        textDecoration: m.style.underline ? 'underline' : 'none',
         lineHeight: `${m.style.size * 1.2 * k}px`,
         padding: `${m.style.size * 0.3 * k}px`,
         color: m.style.textColor,
@@ -799,7 +881,7 @@ export class Markups {
       mk.redo = [];
     }
     m.text = text;
-    const [w, h] = fitBox(text, m.style.size);
+    const [w, h] = fitBox(text, m.style);
     m.box = [m.box![0], m.box![1], w, h];
     this.changed(ed.info, m.page);
   }

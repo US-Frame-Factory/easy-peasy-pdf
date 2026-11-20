@@ -161,8 +161,31 @@ fn helv_width(b: u8) -> f32 {
     }
 }
 
-fn text_width(bytes: &[u8], size: f32) -> f32 {
-    bytes.iter().map(|b| helv_width(*b)).sum::<f32>() * size / 1000.0
+/// Standard-14 font for a style: (resource name, BaseFont).
+fn font_for(s: &Style) -> (&'static str, &'static str) {
+    match (s.font.as_str(), s.bold, s.italic) {
+        ("times", false, false) => ("TiRo", "Times-Roman"),
+        ("times", true, false) => ("TiBo", "Times-Bold"),
+        ("times", false, true) => ("TiIt", "Times-Italic"),
+        ("times", true, true) => ("TiBI", "Times-BoldItalic"),
+        ("courier", false, false) => ("Cour", "Courier"),
+        ("courier", true, false) => ("CoBo", "Courier-Bold"),
+        ("courier", false, true) => ("CoOb", "Courier-Oblique"),
+        ("courier", true, true) => ("CoBO", "Courier-BoldOblique"),
+        (_, false, false) => ("Helv", "Helvetica"),
+        (_, true, false) => ("HeBo", "Helvetica-Bold"),
+        (_, false, true) => ("HeOb", "Helvetica-Oblique"),
+        (_, true, true) => ("HeBO", "Helvetica-BoldOblique"),
+    }
+}
+
+fn text_width(bytes: &[u8], s: &Style, size: f32) -> f32 {
+    let em = match s.font.as_str() {
+        "courier" => 600.0 * bytes.len() as f32,
+        "times" => bytes.iter().map(|b| helv_width(*b)).sum::<f32>() * 0.92 * if s.bold { 1.04 } else { 1.0 },
+        _ => bytes.iter().map(|b| helv_width(*b)).sum::<f32>() * if s.bold { 1.06 } else { 1.0 },
+    };
+    em * size / 1000.0
 }
 
 fn pdf_bytes_literal(bytes: &[u8]) -> String {
@@ -187,12 +210,13 @@ struct Ap {
     map: PageMap,
     ops: String,
     bbox: [f32; 4],
-    text: bool,
+    /// Fonts used: (resource name, BaseFont).
+    fonts: Vec<(&'static str, &'static str)>,
 }
 
 impl Ap {
     fn new(map: PageMap) -> Self {
-        Ap { map, ops: String::from("/GS0 gs\n"), bbox: [f32::MAX, f32::MAX, f32::MIN, f32::MIN], text: false }
+        Ap { map, ops: String::from("/GS0 gs\n"), bbox: [f32::MAX, f32::MAX, f32::MIN, f32::MIN], fonts: Vec::new() }
     }
     fn grow(&mut self, x: f32, y: f32, pad: f32) {
         self.bbox = [self.bbox[0].min(x - pad), self.bbox[1].min(y - pad), self.bbox[2].max(x + pad), self.bbox[3].max(y + pad)];
@@ -251,9 +275,14 @@ impl Ap {
         self.ops += "h S\nQ\n";
     }
     /// One line of text; (x, y) = baseline start (or middle if `center`) in display points.
-    fn text(&mut self, s: &str, x: f32, y: f32, angle: f32, size: f32, color: &str, center: bool) {
+    fn text(&mut self, s: &str, x: f32, y: f32, angle: f32, st: &Style, center: bool) {
+        let (size, color) = (st.size, st.text_color.as_str());
+        let (res, base) = font_for(st);
+        if !self.fonts.iter().any(|f| f.0 == res) {
+            self.fonts.push((res, base));
+        }
         let bytes = win_ansi(s);
-        let width = text_width(&bytes, size);
+        let width = text_width(&bytes, st, size);
         let (dx, dy) = (angle.cos(), angle.sin());
         let (mut ox, mut oy) = (x, y);
         if center {
@@ -269,10 +298,16 @@ impl Ap {
         }
         let [r, g, bl] = rgb(color);
         self.ops += &format!(
-            "BT /Helv {} Tf {} {} {} rg {} {} {} {} {} {} Tm {} Tj ET\n",
-            f(size), f(r), f(g), f(bl), f(a), f(b), f(c), f(d), f(e), f(fy), pdf_bytes_literal(&bytes)
+            "BT /{} {} Tf {} {} {} rg {} {} {} {} {} {} Tm {} Tj ET\n",
+            res, f(size), f(r), f(g), f(bl), f(a), f(b), f(c), f(d), f(e), f(fy), pdf_bytes_literal(&bytes)
         );
-        self.text = true;
+        if st.underline && width > 0.0 {
+            // A line just under the baseline, in the text colour.
+            let off = size * 0.12;
+            let (ux, uy) = (-dy * off, dx * off); // display "down" relative to the text
+            let line = Style { color: st.text_color.clone(), ..st.clone() };
+            self.polyline(&[[ox + ux, oy + uy], [ox + dx * width + ux, oy + dy * width + uy]], false, &line, (size * 0.06).max(0.5), true);
+        }
     }
 }
 
@@ -285,7 +320,7 @@ fn text_box(ap: &mut Ap, m: &Markup) {
     let pad = s.size * 0.3;
     for (i, line) in m.text.lines().enumerate() {
         let by = y + pad + s.size * (0.9 + i as f32 * 1.2);
-        ap.text(line, x + pad, by, 0.0, s.size, &s.text_color, false);
+        ap.text(line, x + pad, by, 0.0, s, false);
     }
 }
 
@@ -331,7 +366,7 @@ fn build(m: &Markup, map: PageMap) -> Option<(Dictionary, Ap)> {
         "text" | "callout" => {
             let [tr, tg, tb] = rgb(&s.text_color);
             d.set("Subtype", "FreeText");
-            d.set("DA", Object::string_literal(format!("/Helv {} Tf {} {} {} rg", f(s.size), f(tr), f(tg), f(tb))));
+            d.set("DA", Object::string_literal(format!("/{} {} Tf {} {} {} rg", font_for(s).0, f(s.size), f(tr), f(tg), f(tb))));
             d.set("Contents", text_string(&m.text));
             d.set("BS", bs);
             if m.kind == "callout" && !m.pts.is_empty() {
@@ -374,7 +409,7 @@ fn build(m: &Markup, map: PageMap) -> Option<(Dictionary, Ap)> {
             let up = (ang.sin(), -ang.cos());
             let gap = tick.max(s.width) + s.size * 0.25;
             let (mx, my) = ((a[0] + c[0]) / 2.0 + up.0 * gap, (a[1] + c[1]) / 2.0 + up.1 * gap);
-            ap.text(&m.text, mx, my, ang, s.size, &s.text_color, true);
+            ap.text(&m.text, mx, my, ang, s, true);
             let (x0, y0) = user(a);
             let (x1, y1) = user(c);
             d.set("Subtype", "Line");
@@ -398,15 +433,22 @@ fn build(m: &Markup, map: PageMap) -> Option<(Dictionary, Ap)> {
     Some((d, ap))
 }
 
-pub fn save(src: Vec<u8>, dest: &str, author: &str, date: &str, markups: &[Markup]) -> Result<usize, String> {
+/// Document-level changes saved together with the markups.
+pub struct Extras {
+    /// One label per page; empty string = no label for that page.
+    pub labels: Option<Vec<String>>,
+    /// (page, quarter turns clockwise to add)
+    pub rotate: Vec<[i64; 2]>,
+}
+
+pub fn save(src: Vec<u8>, dest: &str, author: &str, date: &str, markups: &[Markup], extras: &Extras) -> Result<usize, String> {
     let prev = Document::load_mem(&src).map_err(|e| format!("lopdf could not read the PDF: {e}"))?;
     if prev.is_encrypted() {
         return Err("encrypted PDF".into());
     }
     let pages: BTreeMap<u32, ObjectId> = prev.get_pages();
     let mut inc = IncrementalDocument::create_from(src, prev);
-    let font = dictionary! { "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica", "Encoding" => "WinAnsiEncoding" };
-    let mut font_id: Option<ObjectId> = None;
+    let mut font_ids: BTreeMap<&'static str, ObjectId> = BTreeMap::new();
     let mut count = 0;
 
     let mut by_page: BTreeMap<u32, Vec<&Markup>> = BTreeMap::new();
@@ -428,9 +470,17 @@ pub fn save(src: Vec<u8>, dest: &str, author: &str, date: &str, markups: &[Marku
             let mut res = dictionary! {
                 "ExtGState" => dictionary! { "GS0" => dictionary! { "Type" => "ExtGState", "CA" => m.style.opacity.clamp(0.0, 1.0), "ca" => m.style.opacity.clamp(0.0, 1.0) } },
             };
-            if ap.text {
-                let fid = *font_id.get_or_insert_with(|| inc.new_document.add_object(font.clone()));
-                res.set("Font", dictionary! { "Helv" => fid });
+            if !ap.fonts.is_empty() {
+                let mut fd = Dictionary::new();
+                for (rname, base) in &ap.fonts {
+                    let fid = *font_ids.entry(base).or_insert_with(|| {
+                        inc.new_document.add_object(dictionary! {
+                            "Type" => "Font", "Subtype" => "Type1", "BaseFont" => *base, "Encoding" => "WinAnsiEncoding"
+                        })
+                    });
+                    fd.set(*rname, fid);
+                }
+                res.set("Font", fd);
             }
             let mut stream = Stream::new(
                 dictionary! {
@@ -478,6 +528,38 @@ pub fn save(src: Vec<u8>, dest: &str, author: &str, date: &str, markups: &[Marku
                 inc.new_document.get_dictionary_mut(pid).map_err(|e| e.to_string())?.set("Annots", refs);
             }
         }
+    }
+    // Rotation: after the markups, whose coordinates are in the old orientation.
+    for &[page, turns] in &extras.rotate {
+        let Some(&pid) = pages.get(&((page as u32) + 1)) else { continue };
+        let cur = {
+            let prev = inc.get_prev_documents();
+            let pd = prev.get_dictionary(pid).map_err(|e| e.to_string())?;
+            inherited(prev, pd, b"Rotate").and_then(num).unwrap_or(0.0) as i64
+        };
+        let new = (cur + turns * 90).rem_euclid(360);
+        inc.opt_clone_object_to_new_document(pid).map_err(|e| e.to_string())?;
+        inc.new_document.get_dictionary_mut(pid).map_err(|e| e.to_string())?.set("Rotate", new);
+    }
+    // Page labels: one range per page, each label as a prefix with no numbering.
+    if let Some(labels) = &extras.labels {
+        let mut nums: Vec<Object> = Vec::new();
+        for (i, l) in labels.iter().enumerate().take(pages.len()) {
+            nums.push(Object::Integer(i as i64));
+            let mut d = Dictionary::new();
+            let l = l.trim();
+            if l.is_empty() {
+                d.set("S", "D"); // plain page number
+                d.set("St", (i + 1) as i64);
+            } else {
+                d.set("P", text_string(l));
+            }
+            nums.push(Object::Dictionary(d));
+        }
+        let pl_id = inc.new_document.add_object(dictionary! { "Nums" => nums });
+        let root = inc.get_prev_documents().trailer.get(b"Root").and_then(Object::as_reference).map_err(|e| e.to_string())?;
+        inc.opt_clone_object_to_new_document(root).map_err(|e| e.to_string())?;
+        inc.new_document.get_dictionary_mut(root).map_err(|e| e.to_string())?.set("PageLabels", pl_id);
     }
     let mut out = std::io::BufWriter::new(std::fs::File::create(dest).map_err(|e| format!("cannot write {dest}: {e}"))?);
     inc.save_to(&mut out).map_err(|e| format!("saving failed: {e}"))?;

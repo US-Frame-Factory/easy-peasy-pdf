@@ -29,13 +29,24 @@ everyday markup and measuring tools (no editing of the drawings themselves).
   range like `1-3, 7`, then **Save As…**. The new PDF is made by copying the original pages, so the
   sheets stay vector (not images).
 
+- **Rename sheets** – reads each sheet's number and title from its title block ("DWG TITLE",
+  "SHEET TITLE", "Drawing Title" …, including two-line titles) and, after you check and edit them
+  in a table, saves them into the PDF as page labels (`S-5A - FIRST FLOOR ANCHOR SCREW & HOLDOWN
+  LOCATION PLAN`). Bluebeam shows page labels in its thumbnails; this app shows them in the grid,
+  page box and search results.
+- **Rotate pages** – this page, the pages selected in Grid, or all pages, clockwise or counter-
+  clockwise; saved into the PDF.
 - **Select text** – drag a box around text, Ctrl+C copies it.
 - **Snapshot** – drag a box to copy that area (with any markups) to the clipboard as an image.
-- **Markups** – pen, highlighter, rectangle, ellipse, text box and callout (arrow + text). Style
-  panel: line / text colour, line width, text size, opacity. Pan tool: click a markup to select,
+- **Markups** – pen, highlighter, rectangle, ellipse, text box and callout (arrow + text), from the
+  tool rail on the left (one-key shortcuts: V pan, X select text, G snapshot, P pen, H highlight,
+  R rectangle, E ellipse, T text, C callout, M measure, K calibrate). The properties bar shows the
+  style of the current tool or selected markup: colour swatches + colour picker, line width,
+  font (Helvetica / Times / Courier), bold / italic / underline, text size, opacity. Pan tool: click a markup to select,
   drag to move, Delete to remove, double-click a text box to edit. Ctrl+Z / Ctrl+Y undo / redo.
 - **Measure** – set the page scale from presets (1/8" = 1'-0", 1" = 20', …) or calibrate by
-  dragging along a known dimension; then drag to measure. Number formats: 148.1in, 148⅛in,
+  clicking both ends of a known dimension (the calibration panel doesn't block panning / zooming,
+  so you can double-check the line); then click two points (or drag) to measure. Number formats: 148.1in, 148⅛in,
   12.34ft, 12⅜ft, 12'4.1", 12'4⅛". Shift keeps lines at 0/45/90°. Scales are remembered per file.
 - **Save** – Ctrl+S writes the markups into the PDF as standard annotations (Square, Circle, Ink,
   FreeText, Line) that Bluebeam and Acrobat show and can edit; Ctrl+Shift+S saves a copy. It's an

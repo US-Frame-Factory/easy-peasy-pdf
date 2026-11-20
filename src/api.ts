@@ -47,7 +47,10 @@ export const api = {
   copyImage: (rgba: Uint8Array, w: number, h: number) =>
     invoke<void>('copy_image', rgba, { headers: { 'x-width': String(w), 'x-height': String(h) } }),
   /** Returns the path written. `dest` omitted = into the open file. */
-  saveMarkups: (doc: number, markups: unknown[], dest?: string) => invoke<string>('save_markups', { doc, markups, dest }),
+  saveMarkups: (doc: number, markups: unknown[], dest?: string, labels?: string[], rotate?: [number, number][]) =>
+    invoke<string>('save_markups', { doc, markups, dest, labels, rotate }),
+  sheetInfo: (doc: number) =>
+    invoke<{ numbers: (string | null)[]; titles: (string | null)[]; labels: (string | null)[]; indexed: number; total: number }>('sheet_info', { doc }),
   crashAWorker: () => invoke<void>('crash_a_worker'),
 };
 
