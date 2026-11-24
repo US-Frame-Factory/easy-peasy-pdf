@@ -1,12 +1,13 @@
 // "Request a feature": posts the request to the feedback endpoint (a small Vercel
 // function in feedback-api/, which emails it). The endpoint URL is baked in at build
-// time (VITE_FEEDBACK_URL); no keys or passwords are in the app.
+// time (VITE_FEEDBACK_URL, else DEFAULT_ENDPOINT); no keys or passwords are in the app.
 // Requests that can't be sent (offline, server busy or down) wait in an outbox and go
 // out on a later start.
 
 import { getVersion } from '@tauri-apps/api/app';
 
-const ENDPOINT = String(import.meta.env.VITE_FEEDBACK_URL ?? '').trim();
+const DEFAULT_ENDPOINT = 'https://easy-peasy-pdf-feedback-api.vercel.app/api/feature-request';
+const ENDPOINT = String(import.meta.env.VITE_FEEDBACK_URL || DEFAULT_ENDPOINT).trim();
 const OUTBOX = 'qfp.featureOutbox';
 
 export interface FeatureRequest {

@@ -129,8 +129,9 @@ One-time setup:
    (framework: Other) and deploy. Under *Settings → Environment Variables* add
    `RESEND_API_KEY` (the key), `FEEDBACK_TO` = `pdf@usframefactory.com`, and (once the domain is
    verified) `FEEDBACK_FROM` = `Quick Fast PDF <feedback@usframefactory.com>`; then redeploy.
-3. **GitHub:** *Settings → Secrets and variables → Actions → Variables*, add `FEEDBACK_URL` =
-   `https://<your-project>.vercel.app/api/feature-request`. The next release build uses it.
+3. The app sends to `https://easy-peasy-pdf-feedback-api.vercel.app/api/feature-request`
+   (`DEFAULT_ENDPOINT` in `src/feedback.ts`). To point it elsewhere without a code change, set the
+   GitHub Actions variable `FEEDBACK_URL`; the next release build uses it.
    (The app is allowed to talk to `*.vercel.app`; a custom domain needs adding to the CSP in
    `tauri.conf.json`.)
 
