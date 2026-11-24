@@ -1,14 +1,12 @@
-// "Request a feature": sends the request to the feature_requests table in Supabase.
-//
-// The project URL and its public "anon" key are baked in at build time
-// (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY). The anon key is meant to be public:
-// the table's row-level security lets the app add requests but not read any back.
-// Requests that can't be sent (offline) wait in an outbox and go out on a later start.
+// "Request a feature": posts the request to the feedback endpoint (a small Vercel
+// function in feedback-api/, which emails it). The endpoint URL is baked in at build
+// time (VITE_FEEDBACK_URL); no keys or passwords are in the app.
+// Requests that can't be sent (offline, server busy or down) wait in an outbox and go
+// out on a later start.
 
 import { getVersion } from '@tauri-apps/api/app';
 
-const BASE = String(import.meta.env.VITE_SUPABASE_URL ?? '').replace(/\/+$/, '');
-const KEY = String(import.meta.env.VITE_SUPABASE_ANON_KEY ?? '');
+const ENDPOINT = String(import.meta.env.VITE_FEEDBACK_URL ?? '').trim();
 const OUTBOX = 'qfp.featureOutbox';
 
 export interface FeatureRequest {
@@ -20,25 +18,20 @@ export interface FeatureRequest {
   created_at?: string;
 }
 
-export const feedbackConfigured = () => !!BASE && !!KEY;
+export const feedbackConfigured = () => /^https?:\/\//.test(ENDPOINT);
 
-/** Thrown when the request could not reach the server (kept in the outbox). */
+/** The request couldn't be delivered right now (kept in the outbox, retried later). */
 export class OfflineError extends Error {}
 
-async function post(rows: FeatureRequest[]): Promise<void> {
+async function post(row: FeatureRequest): Promise<void> {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 15000);
   let res: Response;
   try {
-    res = await fetch(`${BASE}/rest/v1/feature_requests`, {
+    res = await fetch(ENDPOINT, {
       method: 'POST',
-      headers: {
-        apikey: KEY,
-        Authorization: `Bearer ${KEY}`,
-        'Content-Type': 'application/json',
-        Prefer: 'return=minimal',
-      },
-      body: JSON.stringify(rows),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(row),
       signal: ctl.signal,
     });
   } catch (e) {
@@ -46,10 +39,16 @@ async function post(rows: FeatureRequest[]): Promise<void> {
   } finally {
     clearTimeout(timer);
   }
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`the server said ${res.status}${body ? `: ${body.slice(0, 200)}` : ''}`);
+  if (res.ok) return;
+  let why = '';
+  try {
+    why = (await res.json()).error ?? '';
+  } catch {
+    /* not JSON */
   }
+  // Busy, rate-limited or temporarily down: keep it and try again later.
+  if (res.status >= 500 || res.status === 429 || res.status === 408) throw new OfflineError(`${res.status} ${why}`);
+  throw new Error(why || `the server said ${res.status}`);
 }
 
 function readOutbox(): FeatureRequest[] {
@@ -80,7 +79,7 @@ export async function sendFeatureRequest(message: string, name: string, email: s
     created_at: new Date().toISOString(),
   };
   try {
-    await post([row]);
+    await post(row);
   } catch (e) {
     if (e instanceof OfflineError) writeOutbox([...readOutbox(), row]);
     throw e;
@@ -91,12 +90,21 @@ export async function sendFeatureRequest(message: string, name: string, email: s
 export async function flushOutbox(): Promise<number> {
   const rows = readOutbox();
   if (!rows.length || !feedbackConfigured()) return 0;
-  try {
-    await post(rows);
-    writeOutbox([]);
-    return rows.length;
-  } catch (e) {
-    if (!(e instanceof OfflineError)) writeOutbox([]); // rejected by the server: don't retry forever
-    return 0;
+  let sent = 0;
+  const keep: FeatureRequest[] = [];
+  for (const [i, row] of rows.entries()) {
+    try {
+      await post(row);
+      sent++;
+    } catch (e) {
+      // Still can't deliver: keep this one and the rest for next time.
+      // Rejected outright (bad request): drop it rather than retry forever.
+      if (e instanceof OfflineError) {
+        keep.push(...rows.slice(i));
+        break;
+      }
+    }
   }
+  writeOutbox(keep);
+  return sent;
 }

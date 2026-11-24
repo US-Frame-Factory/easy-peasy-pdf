@@ -1348,7 +1348,7 @@ featureSend.onclick = async (e) => {
     if (err instanceof OfflineError) {
       featureText.value = '';
       featureDlg.close();
-      toast("You seem to be offline: your request is saved and will be sent next time Quick Fast PDF starts online.");
+      toast("Couldn't reach the server right now: your request is saved and will be sent automatically next time Quick Fast PDF starts.");
     } else {
       featureErr.textContent = `Couldn't send it: ${err instanceof Error ? err.message : err}`;
     }

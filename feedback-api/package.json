@@ -1,0 +1,7 @@
+{
+  "name": "quick-fast-pdf-feedback",
+  "private": true,
+  "type": "module",
+  "description": "Receives 'Request a feature' submissions from Quick Fast PDF and emails them.",
+  "engines": { "node": ">=18" }
+}

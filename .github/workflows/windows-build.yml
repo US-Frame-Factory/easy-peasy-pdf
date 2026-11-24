@@ -27,10 +27,10 @@ jobs:
         shell: bash
     env:
       HAS_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
-      # "Request a feature" database (repo Settings > Secrets and variables > Actions > Variables).
-      # The anon key is public by design; the table's row-level security only allows inserts.
-      VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-      VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+      # "Request a feature" endpoint (the feedback-api Vercel function), e.g.
+      # https://quick-fast-pdf-feedback.vercel.app/api/feature-request
+      # Repo Settings > Secrets and variables > Actions > Variables > FEEDBACK_URL.
+      VITE_FEEDBACK_URL: ${{ vars.FEEDBACK_URL }}
     steps:
       - uses: actions/checkout@v4
 

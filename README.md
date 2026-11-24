@@ -66,8 +66,8 @@ everyday markup and measuring tools, plus in-place edits of the drawing's own te
   with unsaved markups.
 
 - **Request a feature** – the lightbulb at the bottom of the tool rail opens a box to describe a
-  feature (plus optional name / email). It goes straight into a Supabase table; if the PC is
-  offline it's kept and sent on a later start. See *Feature requests database* below.
+  feature (plus optional name / email); it's emailed to pdf@usframefactory.com. If the PC is
+  offline it's kept and sent on a later start. See *Feature requests (email)* below.
 
 ### Keyboard
 
@@ -111,23 +111,31 @@ workflow still publishes installers, but those releases can't be delivered as in
 Keep a backup of the key: if it's lost, installed copies can't verify new updates and everyone must
 reinstall once from a build with a new key.
 
-## Feature requests database
+## Feature requests (email)
 
-Requests are stored in a Supabase table, `feature_requests`.
+Requests from the lightbulb button are emailed to **pdf@usframefactory.com** by a small Vercel
+function in [`feedback-api/`](feedback-api/api/feature-request.js), using
+[Resend](https://resend.com) to send the email. No keys are inside the app; the app only knows
+the function's URL. The function checks the input, limits each computer to a few requests per
+10 minutes, and sets Reply-To to the requester's email when they give one.
 
-1. In the Supabase dashboard, open (or create) a project, go to **SQL Editor**, paste
-   [`supabase/feature_requests.sql`](supabase/feature_requests.sql) and run it. It creates the
-   table and locks it down: the app's key can **add** requests but can't read, change or delete
-   any.
-2. In **Project Settings → API**, copy the **Project URL** and the **anon public** key.
-3. In GitHub: **Settings → Secrets and variables → Actions → Variables**, add `SUPABASE_URL` and
-   `SUPABASE_ANON_KEY` with those values. (Variables, not secrets: the anon key is designed to be
-   public and ends up inside the app.) The next release build picks them up.
-4. Read requests in **Table Editor → feature_requests**; the `status` column (new / planned /
-   in progress / done / declined) and `notes` are for you.
+One-time setup:
 
-Local builds read the same values from `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`. Without
-them the button still opens but says sending isn't set up.
+1. **Resend:** sign up (free tier: 3,000 emails/month) and create an API key. To send *from* an
+   `@usframefactory.com` address, add the domain in Resend and add the DNS records it shows.
+   Without that, sign up to Resend *as pdf@usframefactory.com*: its test sender can deliver only
+   to the account's own address, which is all this needs.
+2. **Vercel:** *Add New → Project*, import this repo, set **Root Directory** to `feedback-api`
+   (framework: Other) and deploy. Under *Settings → Environment Variables* add
+   `RESEND_API_KEY` (the key), `FEEDBACK_TO` = `pdf@usframefactory.com`, and (once the domain is
+   verified) `FEEDBACK_FROM` = `Quick Fast PDF <feedback@usframefactory.com>`; then redeploy.
+3. **GitHub:** *Settings → Secrets and variables → Actions → Variables*, add `FEEDBACK_URL` =
+   `https://<your-project>.vercel.app/api/feature-request`. The next release build uses it.
+   (The app is allowed to talk to `*.vercel.app`; a custom domain needs adding to the CSP in
+   `tauri.conf.json`.)
+
+Local builds read the URL from `VITE_FEEDBACK_URL`. Without it the button still opens but says
+sending isn't set up.
 
 ## Development
 
