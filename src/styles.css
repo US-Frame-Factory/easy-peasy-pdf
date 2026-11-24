@@ -177,6 +177,7 @@ button.ghost:hover { background: #eef1f5; }
 #rail .rsep { height: 1px; background: var(--line); margin: 4px 6px; flex: none; }
 #rail .spacer { flex: 1; }
 #rail .feature-btn { color: #7a5a00; margin-bottom: 6px; }
+#rail .feature-btn[hidden] { display: none; }
 #rail .feature-btn span { line-height: 1.2; }
 #rail .feature-btn:hover { background: #fff6d6; }
 #rail .scale-btn { font-size: 10px; line-height: 1.25; border: 1px solid var(--line); background: #fff; text-align: center; word-break: break-word; }

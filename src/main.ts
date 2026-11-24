@@ -1306,6 +1306,8 @@ featureDlg.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') e.stopPropagation(); // typing must not trigger app shortcuts
 });
 
+// Only shown in builds that know where to send requests (FEEDBACK_URL).
+$('btn-feature').hidden = !feedbackConfigured();
 $('btn-feature').onclick = () => {
   featureErr.textContent = '';
   featureName.value ||= remembered('qfp.name');
