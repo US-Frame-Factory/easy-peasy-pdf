@@ -3,7 +3,7 @@
 *(Formerly Easy Peasy PDF. Updating from it installs Quick Fast PDF, which then removes the old copy and keeps your settings.)*
 
 A minimal, fast, crash-resistant desktop PDF viewer for big construction plan sets, with the
-everyday markup and measuring tools (no editing of the drawings themselves).
+everyday markup and measuring tools, plus in-place edits of the drawing's own text.
 
 ## What it does
 
