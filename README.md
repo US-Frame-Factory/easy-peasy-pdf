@@ -1,4 +1,6 @@
-# Easy Peasy PDF
+# Quick Fast PDF
+
+*(Formerly Easy Peasy PDF. Updating from it installs Quick Fast PDF, which then removes the old copy and keeps your settings.)*
 
 A minimal, fast, crash-resistant desktop PDF viewer for big construction plan sets, with the
 everyday markup and measuring tools (no editing of the drawings themselves).
@@ -82,7 +84,7 @@ everyday markup and measuring tools (no editing of the drawings themselves).
 
 ## Download (Windows)
 
-Latest installer: **[EasyPeasyPDF-setup.exe](https://github.com/US-Frame-Factory/easy-peasy-pdf/releases/latest/download/EasyPeasyPDF-setup.exe)**
+Latest installer: **[QuickFastPDF-setup.exe](https://github.com/US-Frame-Factory/easy-peasy-pdf/releases/latest/download/QuickFastPDF-setup.exe)**
 (installs for the current user, no admin needed, registers "Open with" for `.pdf`).
 An `.msi` for per-machine installs is on the [Releases](https://github.com/US-Frame-Factory/easy-peasy-pdf/releases) page.
 
@@ -126,7 +128,7 @@ runtime the app looks for it in `resource_dir/pdfium/`, next to the exe, then `s
 ### Headless benchmark
 
 ```sh
-src-tauri/target/release/easy-peasy-pdf --bench path/to/plans.pdf [workers]
+src-tauri/target/release/quick-fast-pdf --bench path/to/plans.pdf [workers]
 ```
 
 Runs the real pool + worker processes and prints open time, first-page tile times, deep-zoom

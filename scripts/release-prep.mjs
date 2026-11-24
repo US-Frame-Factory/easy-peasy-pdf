@@ -33,7 +33,7 @@ if (cmd === 'version') {
     if (!f) throw new Error(`no ${ext} for ${version} in ${dir}`);
     return join(dir, f);
   };
-  const files = { 'EasyPeasyPDF-setup.exe': pick('nsis', '-setup.exe'), 'EasyPeasyPDF.msi': pick('msi', '.msi') };
+  const files = { 'QuickFastPDF-setup.exe': pick('nsis', '-setup.exe'), 'QuickFastPDF.msi': pick('msi', '.msi') };
   const platforms = {};
   for (const [name, src] of Object.entries(files)) {
     copyFileSync(src, join(out, name));

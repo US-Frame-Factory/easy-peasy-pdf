@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Easy Peasy PDF",
+  "productName": "Quick Fast PDF",
   "version": "0.2.0",
   "identifier": "com.usframefactory.easypeasypdf",
   "build": {
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Easy Peasy PDF",
+        "title": "Quick Fast PDF",
         "width": 1400,
         "height": 900,
         "minWidth": 640,

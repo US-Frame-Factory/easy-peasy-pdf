@@ -1,5 +1,5 @@
 //! Headless benchmark of the render pipeline (same pool + worker processes as the app).
-//! `easy-peasy-pdf --bench <file.pdf> [workers]`
+//! `quick-fast-pdf --bench <file.pdf> [workers]`
 
 use crate::pool::{default_worker_count, Pool, Prio};
 use crate::protocol::{Request, TILE};

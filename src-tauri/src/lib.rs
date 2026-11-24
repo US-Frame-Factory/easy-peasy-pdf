@@ -317,6 +317,40 @@ fn crash_a_worker(state: tauri::State<'_, AppState>) {
     let _ = state.pool.submit(Request::Crash, Prio::Interactive, None);
 }
 
+/// The app used to be called "Easy Peasy PDF". Its per-user install (and shortcuts)
+/// is a separate program as far as Windows is concerned, so once Quick Fast PDF is
+/// running, uninstall the old one quietly. Settings carry over (same app identifier).
+#[cfg(windows)]
+fn remove_old_install() {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    std::thread::sleep(std::time::Duration::from_secs(15));
+    let Ok(out) = Command::new("reg")
+        .args(["query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Easy Peasy PDF", "/v", "UninstallString"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+    else {
+        return;
+    };
+    let text = String::from_utf8_lossy(&out.stdout);
+    let Some(cmd) = text.lines().find_map(|l| l.split_once("REG_SZ").map(|(_, v)| v.trim().trim_matches('"').to_string())) else {
+        return; // not installed
+    };
+    let uninstaller = std::path::PathBuf::from(&cmd);
+    if !uninstaller.is_file() {
+        return;
+    }
+    // Never uninstall ourselves (in case this copy runs from the old folder).
+    if let (Ok(me), Some(dir)) = (std::env::current_exe(), uninstaller.parent()) {
+        if me.starts_with(dir) {
+            return;
+        }
+    }
+    eprintln!("[migrate] removing the old Easy Peasy PDF install: {cmd}");
+    let _ = Command::new(&uninstaller).arg("/S").creation_flags(CREATE_NO_WINDOW).spawn();
+}
+
 #[tauri::command]
 async fn text_at(state: tauri::State<'_, AppState>, doc: u64, page: u32, x: f32, y: f32) -> Result<serde_json::Value, String> {
     let d = state.doc(doc)?;
@@ -537,6 +571,8 @@ pub fn run() {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or_else(pool::default_worker_count);
             let pool = Pool::start(exe, pdfium.clone(), workers);
+            #[cfg(windows)]
+            std::thread::spawn(remove_old_install);
             app.manage(AppState {
                 pool,
                 docs: RwLock::new(HashMap::new()),
@@ -564,5 +600,5 @@ pub fn run() {
             save_markups
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Easy Peasy PDF");
+        .expect("error while running Quick Fast PDF");
 }

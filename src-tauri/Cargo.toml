@@ -1,12 +1,12 @@
 [package]
-name = "easy-peasy-pdf"
+name = "quick-fast-pdf"
 version = "0.2.0"
-description = "Easy Peasy PDF - a fast, crash-resistant viewer for big plan sets"
+description = "Quick Fast PDF - a fast, crash-resistant viewer for big plan sets"
 authors = ["US Frame Factory"]
 edition = "2021"
 
 [lib]
-name = "easy_peasy_pdf_lib"
+name = "quick_fast_pdf_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

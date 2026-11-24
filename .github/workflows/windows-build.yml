@@ -72,7 +72,7 @@ jobs:
       - name: Upload installers (run artifacts)
         uses: actions/upload-artifact@v4
         with:
-          name: EasyPeasyPDF-${{ steps.ver.outputs.version }}
+          name: QuickFastPDF-${{ steps.ver.outputs.version }}
           path: release/*
           if-no-files-found: error
 
@@ -82,11 +82,11 @@ jobs:
           NOTES: ${{ inputs.notes }}
         run: |
           v="${{ steps.ver.outputs.version }}"
-          body="${NOTES:-Easy Peasy PDF $v}"
+          body="${NOTES:-Quick Fast PDF $v}"
           body="$body
 
-          **Download:** \`EasyPeasyPDF-setup.exe\` (recommended: installs for your user, updates without admin rights) or \`EasyPeasyPDF.msi\` (per-machine, for IT)."
-          if ! gh release create "v$v" release/* --target "$GITHUB_SHA" --title "Easy Peasy PDF $v" --notes "$body" --latest; then
+          **Download:** \`QuickFastPDF-setup.exe\` (recommended: installs for your user, updates without admin rights) or \`QuickFastPDF.msi\` (per-machine, for IT)."
+          if ! gh release create "v$v" release/* --target "$GITHUB_SHA" --title "Quick Fast PDF $v" --notes "$body" --latest; then
             echo "::error::Could not create the release. The installers are attached to this run as artifacts. To allow releases: repo Settings -> Actions -> General -> Workflow permissions -> 'Read and write permissions' (if greyed out, an org owner enables it under the organization's Settings -> Actions -> General)."
             exit 1
           fi

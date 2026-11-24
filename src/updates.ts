@@ -29,7 +29,7 @@ function show(update: Update) {
   const b = banner();
   b.textContent = '';
   const msg = document.createElement('span');
-  msg.textContent = `Easy Peasy PDF ${update.version} is available (you have ${update.currentVersion}).`;
+  msg.textContent = `Quick Fast PDF ${update.version} is available (you have ${update.currentVersion}).`;
   const go = document.createElement('button');
   go.className = 'primary';
   go.textContent = 'Update & restart';
