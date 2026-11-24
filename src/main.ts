@@ -8,6 +8,7 @@ import { initUpdates } from './updates';
 import { FontName, isKind, Kind, KIND_NAMES, Markups, marksOf, measureText, pendingCount, Tool } from './markup';
 import { FORMATS, getScale, NumberFormat, parseLength, PRESETS, scaleLabel, setScale } from './measure';
 import { DocState, Mode, Viewer } from './viewer';
+import { feedbackConfigured, flushOutbox, OfflineError, sendFeatureRequest } from './feedback';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -1157,7 +1158,7 @@ for (const b of $('rail').querySelectorAll<HTMLButtonElement>('button[data-tool]
 window.addEventListener('keydown', (e) => {
   const mod = e.ctrlKey || e.metaKey;
   const key = e.key.toLowerCase();
-  const inField = e.target instanceof HTMLInputElement;
+  const inField = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
   const d = active();
   if (mod && key === 'o') {
     e.preventDefault();
@@ -1283,3 +1284,81 @@ updateToolbar();
 api.initialFiles().then((files) => {
   if (files.length) openPaths(files);
 });
+
+// ---------- request a feature ----------
+
+const featureDlg = $<HTMLDialogElement>('feature-dialog');
+const featureText = $<HTMLTextAreaElement>('feature-text');
+const featureName = $<HTMLInputElement>('feature-name');
+const featureEmail = $<HTMLInputElement>('feature-email');
+const featureErr = $('feature-error');
+const featureSend = $<HTMLButtonElement>('feature-send');
+const remembered = (k: string) => {
+  try {
+    return localStorage.getItem(k) ?? '';
+  } catch {
+    return '';
+  }
+};
+const featureCount = () => ($('feature-count').textContent = `${featureText.value.length} / 5000`);
+featureText.addEventListener('input', featureCount);
+featureDlg.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') e.stopPropagation(); // typing must not trigger app shortcuts
+});
+
+$('btn-feature').onclick = () => {
+  featureErr.textContent = '';
+  featureName.value ||= remembered('qfp.name');
+  featureEmail.value ||= remembered('qfp.email');
+  featureCount();
+  featureDlg.showModal();
+  featureText.focus();
+};
+
+featureSend.onclick = async (e) => {
+  e.preventDefault();
+  const text = featureText.value.trim();
+  if (text.length < 3) {
+    featureErr.textContent = 'Please describe the feature you would like.';
+    return featureText.focus();
+  }
+  if (featureEmail.value.trim() && !featureEmail.checkValidity()) {
+    featureErr.textContent = 'That email address doesn\'t look right (or leave it empty).';
+    return featureEmail.focus();
+  }
+  if (!feedbackConfigured()) {
+    featureErr.textContent = 'Sending requests isn\'t set up in this version yet.';
+    return;
+  }
+  featureErr.textContent = '';
+  featureSend.disabled = true;
+  featureSend.textContent = 'Sending…';
+  try {
+    localStorage.setItem('qfp.name', featureName.value.trim());
+    localStorage.setItem('qfp.email', featureEmail.value.trim());
+  } catch {
+    /* ignore */
+  }
+  try {
+    await sendFeatureRequest(text, featureName.value, featureEmail.value);
+    featureText.value = '';
+    featureDlg.close();
+    toast('Thanks! Your request was sent.');
+  } catch (err) {
+    if (err instanceof OfflineError) {
+      featureText.value = '';
+      featureDlg.close();
+      toast("You seem to be offline: your request is saved and will be sent next time Quick Fast PDF starts online.");
+    } else {
+      featureErr.textContent = `Couldn't send it: ${err instanceof Error ? err.message : err}`;
+    }
+  } finally {
+    featureSend.disabled = false;
+    featureSend.textContent = 'Send';
+  }
+};
+
+// Requests written while offline go out a little after start-up.
+setTimeout(() => {
+  flushOutbox().then((n) => n && toast(`Sent ${n} saved feature request${n === 1 ? '' : 's'}.`));
+}, 12000);

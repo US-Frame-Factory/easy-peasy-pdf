@@ -139,6 +139,14 @@ dialog h2 { margin: 0 0 6px; font-size: 16px; }
 dialog input { width: 100%; margin: 6px 0; }
 dialog .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 .error { color: #b00020; min-height: 1em; margin: 4px 0; }
+#feature-dialog { width: min(560px, 92vw); }
+#feature-dialog textarea {
+  width: 100%; box-sizing: border-box; margin-top: 8px; padding: 8px; resize: vertical; min-height: 140px;
+  font: inherit; border: 1px solid var(--line); border-radius: 6px;
+}
+#feature-dialog .feature-meta { display: flex; justify-content: flex-end; font-size: 12px; }
+#feature-dialog .feature-who { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
+#feature-dialog .feature-who label { font-size: 13px; }
 
 #toasts { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; z-index: 20; }
 .toast { background: #1d2330; color: #fff; padding: 8px 14px; border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.3); max-width: 70vw; }
@@ -168,6 +176,9 @@ button.ghost:hover { background: #eef1f5; }
 #rail button:disabled { opacity: 0.4; }
 #rail .rsep { height: 1px; background: var(--line); margin: 4px 6px; flex: none; }
 #rail .spacer { flex: 1; }
+#rail .feature-btn { color: #7a5a00; margin-bottom: 6px; }
+#rail .feature-btn span { line-height: 1.2; }
+#rail .feature-btn:hover { background: #fff6d6; }
 #rail .scale-btn { font-size: 10px; line-height: 1.25; border: 1px solid var(--line); background: #fff; text-align: center; word-break: break-word; }
 #rail .scale-btn b { color: var(--accent); font-size: 10px; }
 #empty { left: 66px; }

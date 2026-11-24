@@ -24,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' blob: data: tile: http://tile.localhost https://tile.localhost; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost tile: http://tile.localhost https://tile.localhost; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; img-src 'self' blob: data: tile: http://tile.localhost https://tile.localhost; connect-src 'self' https://*.supabase.co ipc: http://ipc.localhost https://ipc.localhost tile: http://tile.localhost https://tile.localhost; style-src 'self' 'unsafe-inline'"
     }
   },
   "bundle": {

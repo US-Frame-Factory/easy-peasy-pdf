@@ -65,6 +65,10 @@ everyday markup and measuring tools, plus in-place edits of the drawing's own te
   appended, so stamped/digitally-signed sets keep a valid signature. You're asked before closing
   with unsaved markups.
 
+- **Request a feature** – the lightbulb at the bottom of the tool rail opens a box to describe a
+  feature (plus optional name / email). It goes straight into a Supabase table; if the PC is
+  offline it's kept and sent on a later start. See *Feature requests database* below.
+
 ### Keyboard
 
 | Keys | Action |
@@ -106,6 +110,24 @@ contents) and, if the key has one, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Without
 workflow still publishes installers, but those releases can't be delivered as in-app updates.
 Keep a backup of the key: if it's lost, installed copies can't verify new updates and everyone must
 reinstall once from a build with a new key.
+
+## Feature requests database
+
+Requests are stored in a Supabase table, `feature_requests`.
+
+1. In the Supabase dashboard, open (or create) a project, go to **SQL Editor**, paste
+   [`supabase/feature_requests.sql`](supabase/feature_requests.sql) and run it. It creates the
+   table and locks it down: the app's key can **add** requests but can't read, change or delete
+   any.
+2. In **Project Settings → API**, copy the **Project URL** and the **anon public** key.
+3. In GitHub: **Settings → Secrets and variables → Actions → Variables**, add `SUPABASE_URL` and
+   `SUPABASE_ANON_KEY` with those values. (Variables, not secrets: the anon key is designed to be
+   public and ends up inside the app.) The next release build picks them up.
+4. Read requests in **Table Editor → feature_requests**; the `status` column (new / planned /
+   in progress / done / declined) and `notes` are for you.
+
+Local builds read the same values from `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`. Without
+them the button still opens but says sending isn't set up.
 
 ## Development
 
