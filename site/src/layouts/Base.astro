@@ -1,0 +1,153 @@
+---
+import { SITE } from '../site';
+interface Props {
+  title?: string;
+  description?: string;
+}
+const { title, description = SITE.description } = Astro.props;
+const fullTitle = title ? `${title} · ${SITE.name}` : `${SITE.name} — the fast PDF viewer for plan sets`;
+const canonical = new URL(Astro.url.pathname, SITE.url).href;
+const path = Astro.url.pathname.replace(/\/$/, '') || '/';
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={SITE.name} />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={`${SITE.url}/og.png`} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <slot name="head" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="wrap bar">
+        <a class="brand" href="/" aria-label={`${SITE.name} home`}>
+          <img src="/img/logo-64.png" width="32" height="32" alt="" />
+          <span>{SITE.name}</span>
+        </a>
+        <nav aria-label="Main">
+          <a href="/#features" aria-current={undefined}>Features</a>
+          <a href="/contact" aria-current={path === '/contact' ? 'page' : undefined}>Contact</a>
+          <a class="btn btn-sm" href="/#download">Download</a>
+        </nav>
+      </div>
+    </header>
+    <main id="main">
+      <slot />
+    </main>
+    <footer class="site-footer">
+      <div class="wrap foot">
+        <p>© {new Date().getFullYear()} {SITE.company}. {SITE.name} for Windows 10 and 11.</p>
+        <p><a href="/contact">Contact</a> · <a href={`mailto:${SITE.email}`}>{SITE.email}</a> · <a href={SITE.releases}>Release notes</a></p>
+      </div>
+    </footer>
+  </body>
+</html>
+
+<style is:global>
+  :root {
+    --blue-light: #1e5eb4;
+    --blue-dark: #7fb0f5;
+    --amber: #f2a20c;
+    --ink-light: #18202c;
+    --ink-dark: #e8ecf2;
+    --muted-light: #5b6577;
+    --muted-dark: #a3adbd;
+    --bg-light: #ffffff;
+    --bg-dark: #10151d;
+    --soft-light: #f4f6f9;
+    --soft-dark: #18202b;
+    --line-light: #dde2e9;
+    --line-dark: #2a3442;
+    --btn-text-light: #ffffff;
+    --btn-text-dark: #0b1524;
+
+    --blue: var(--blue-light);
+    --ink: var(--ink-light);
+    --muted: var(--muted-light);
+    --bg: var(--bg-light);
+    --soft: var(--soft-light);
+    --line: var(--line-light);
+    --btn-text: var(--btn-text-light);
+    @media (prefers-color-scheme: dark) {
+      --blue: var(--blue-dark);
+      --ink: var(--ink-dark);
+      --muted: var(--muted-dark);
+      --bg: var(--bg-dark);
+      --soft: var(--soft-dark);
+      --line: var(--line-dark);
+      --btn-text: var(--btn-text-dark);
+    }
+    @supports (color: light-dark(white, black)) {
+      --blue: light-dark(var(--blue-light), var(--blue-dark));
+      --ink: light-dark(var(--ink-light), var(--ink-dark));
+      --muted: light-dark(var(--muted-light), var(--muted-dark));
+      --bg: light-dark(var(--bg-light), var(--bg-dark));
+      --soft: light-dark(var(--soft-light), var(--soft-dark));
+      --line: light-dark(var(--line-light), var(--line-dark));
+      --btn-text: light-dark(var(--btn-text-light), var(--btn-text-dark));
+    }
+    color-scheme: light dark;
+    accent-color: var(--blue);
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 17px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  }
+  img { max-width: 100%; height: auto; display: block; }
+  a { color: var(--blue); }
+  h1, h2, h3 { line-height: 1.2; text-wrap: balance; margin: 0 0 0.5em; }
+  p { text-wrap: pretty; }
+  .wrap { width: min(1120px, 100% - 40px); margin-inline: auto; }
+  .muted { color: var(--muted); }
+  .skip { position: absolute; left: -999px; top: 8px; }
+  .skip:focus { left: 8px; background: var(--bg); padding: 6px 10px; z-index: 10; }
+
+  .site-header { border-bottom: 1px solid var(--line); background: var(--bg); position: sticky; top: 0; z-index: 5; }
+  .bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 64px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; font-weight: 700; font-size: 18px; }
+  nav { display: flex; align-items: center; gap: 22px; }
+  nav a { color: var(--ink); text-decoration: none; font-weight: 500; }
+  nav a:hover, nav a[aria-current="page"] { color: var(--blue); }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 10px; padding: 14px 24px; border-radius: 10px;
+    background: var(--blue); color: var(--btn-text) !important; font-weight: 650; text-decoration: none;
+    border: 0; font-size: 17px; cursor: pointer;
+  }
+  .btn:hover { filter: brightness(1.08); }
+  .btn:focus-visible, a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid var(--amber); outline-offset: 2px; }
+  .btn-sm { padding: 8px 16px; font-size: 15px; }
+  .btn-ghost { background: transparent; color: var(--blue) !important; border: 1.5px solid var(--line); }
+
+  section { padding: 72px 0; }
+  section.alt { background: var(--soft); }
+  .eyebrow { color: var(--amber); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; font-size: 13px; margin: 0 0 10px; }
+
+  .site-footer { border-top: 1px solid var(--line); padding: 28px 0; font-size: 15px; color: var(--muted); }
+  .foot { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .foot p { margin: 0; }
+
+  .visually-hidden:where(:not(:focus-within, :active)) {
+    position: absolute !important; clip-path: inset(50%) !important; overflow: hidden !important;
+    width: 1px !important; height: 1px !important; margin: -1px !important; padding: 0 !important;
+    border: 0 !important; white-space: nowrap !important;
+  }
+</style>

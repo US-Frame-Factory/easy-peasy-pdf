@@ -1,0 +1,14 @@
+{
+  "name": "quickfastpdf-site",
+  "private": true,
+  "type": "module",
+  "description": "quickfastpdf.com — website for Quick Fast PDF",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "astro": "7.4.13"
+  }
+}

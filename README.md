@@ -138,6 +138,10 @@ One-time setup:
 Local builds read the URL from `VITE_FEEDBACK_URL`. Without it the button still opens but says
 sending isn't set up.
 
+## Website
+
+quickfastpdf.com lives in [`site/`](site/README.md) (Astro, deployed on Vercel).
+
 ## Development
 
 Prerequisites: Node 20+, Rust (stable), and the

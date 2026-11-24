@@ -1,0 +1,184 @@
+---
+import Base from '../layouts/Base.astro';
+import { SITE } from '../site';
+
+const features = [
+  {
+    title: 'Opens big plan sets instantly',
+    text: 'A 90-sheet, 30 MB drawing set opens in a blink and the first sheet is sharp right away. Pages draw in the background as you scroll, so you never wait on a spinner.',
+  },
+  {
+    title: 'Jump straight to any sheet',
+    text: 'Type a sheet number like A-101 or S-208 and you are there. Sheet numbers and titles are read from the title block, and you can rename pages with them in one step.',
+  },
+  {
+    title: 'Grid view and split screen',
+    text: 'See every sheet as a labeled thumbnail, or put two sheets side by side (or two spots on the same sheet) to compare plans, sections and details.',
+  },
+  {
+    title: 'Markups that open anywhere',
+    text: 'Pen, highlighter, boxes, circles, text and callouts. Saved as standard PDF annotations, so Bluebeam and Acrobat show them too — and digital signatures stay valid.',
+  },
+  {
+    title: 'Measure from the drawing',
+    text: 'Pick the drawing scale or calibrate from a known dimension, then click two points. Feet-and-inches with fractions, the way the plans are dimensioned.',
+  },
+  {
+    title: 'Light editing when you need it',
+    text: 'Fix a typo in the drawing’s own text, rotate sheets, pull a few sheets out into a new PDF, or copy a snapshot of any area into an email.',
+  },
+  {
+    title: 'Search every open file',
+    text: 'Find a note, room name or spec section across all of your open sets at once, with every hit highlighted on the sheet.',
+  },
+  {
+    title: 'Doesn’t fall over',
+    text: 'Every sheet is drawn by a separate background worker. If one odd page misbehaves, it is restarted on its own and the app keeps running.',
+  },
+];
+---
+<Base>
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div>
+        <p class="eyebrow">For construction professionals</p>
+        <h1>The PDF viewer that keeps up with your plan sets.</h1>
+        <p class="lede">
+          {SITE.name} opens huge drawing sets in an instant and lets you move around them just as fast —
+          jump to a sheet by number, flip through a grid of every sheet, mark up, measure and make light edits.
+          Nothing else in the way.
+        </p>
+        <div class="cta">
+          <a class="btn" href={SITE.download} data-download>
+            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 19h16"/></svg>
+            Download for Windows
+          </a>
+          <span class="muted small">Windows 10 &amp; 11 · <span data-version>latest version</span></span>
+        </div>
+      </div>
+      <figure class="shot hero-shot">
+        <img
+          src="/img/markup.webp"
+          srcset="/img/markup-700.webp 700w, /img/markup.webp 1400w"
+          sizes="(min-width: 1000px) 640px, 100vw"
+          width="1400" height="900"
+          alt="Quick Fast PDF showing a floor plan with a measurement, a box and a callout markup"
+          fetchpriority="high"
+        />
+      </figure>
+    </div>
+  </section>
+
+  <section class="alt speed" aria-labelledby="speed-h">
+    <div class="wrap">
+      <h2 id="speed-h">Built for speed first</h2>
+      <p class="muted narrow">Measured with a real 93-sheet structural set (30 MB) in our testing:</p>
+      <ul class="stats">
+        <li><strong>~0.02 s</strong><span>to open the set</span></li>
+        <li><strong>&lt; 0.05 s</strong><span>until the first sheet is sharp</span></li>
+        <li><strong>~2 ms</strong><span>per tile when zoomed all the way in</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="features" aria-labelledby="features-h">
+    <div class="wrap">
+      <p class="eyebrow">Features</p>
+      <h2 id="features-h">Everything you reach for on a drawing set. Nothing you don’t.</h2>
+      <ul class="features">
+        {features.map((f) => (
+          <li>
+            <h3>{f.title}</h3>
+            <p>{f.text}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  </section>
+
+  <section class="alt" aria-labelledby="tour-h">
+    <div class="wrap">
+      <h2 id="tour-h" class="visually-hidden">A look inside</h2>
+      <div class="tour">
+        <div>
+          <h3>Every sheet at a glance</h3>
+          <p>Grid view labels each thumbnail with its sheet number, so finding E-101 in a 200-sheet set is a click, not a scroll.</p>
+        </div>
+        <figure class="shot">
+          <img src="/img/grid.webp" srcset="/img/grid-700.webp 700w, /img/grid.webp 1400w" sizes="(min-width: 1000px) 640px, 100vw"
+            width="1400" height="900" loading="lazy" alt="Grid view of a 12-sheet drawing set with sheet numbers under each thumbnail" />
+        </figure>
+      </div>
+      <div class="tour flip">
+        <div>
+          <h3>Two sheets side by side</h3>
+          <p>Split the window to compare a plan with its section, or keep the sheet index open while you work.</p>
+        </div>
+        <figure class="shot">
+          <img src="/img/split.webp" srcset="/img/split-700.webp 700w, /img/split.webp 1400w" sizes="(min-width: 1000px) 640px, 100vw"
+            width="1400" height="900" loading="lazy" alt="Split screen showing two sheets of the same set side by side" />
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section id="download" aria-labelledby="download-h">
+    <div class="wrap download">
+      <h2 id="download-h">Download {SITE.name}</h2>
+      <p class="muted">For Windows 10 and 11 (64-bit). About 9 MB. Updates itself when a new version is out.</p>
+      <p><a class="btn" href={SITE.download} data-download>Download for Windows</a></p>
+      <p class="small"><span data-version>Latest version</span> · <a href={SITE.downloadMsi}>MSI for IT / per-machine installs</a> · <a href={SITE.releases}>What’s new</a></p>
+      <details>
+        <summary>Windows says “Windows protected your PC”?</summary>
+        <p>
+          That message appears for new apps that Windows doesn’t know yet. Click <strong>More info</strong>, then
+          <strong>Run anyway</strong>. The installer sets up {SITE.name} for your Windows user and doesn’t need admin rights.
+        </p>
+      </details>
+    </div>
+  </section>
+
+  <script define:vars={{ api: SITE.latestApi }}>
+    // Show the current version next to the download buttons (optional; the links always point to the latest).
+    fetch(api, { headers: { Accept: 'application/vnd.github+json' } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((rel) => {
+        const v = rel?.tag_name?.replace(/^v/, '');
+        if (!v) return;
+        for (const el of document.querySelectorAll('[data-version]')) el.textContent = `Version ${v}`;
+      })
+      .catch(() => {});
+  </script>
+</Base>
+
+<style>
+  .hero { padding: 64px 0 56px; }
+  .hero-grid { display: grid; grid-template-columns: 1fr; gap: 40px; align-items: center; }
+  @media (min-width: 1000px) { .hero-grid { grid-template-columns: 5fr 6fr; } }
+  h1 { font-size: clamp(34px, 5vw, 52px); letter-spacing: -0.02em; }
+  .lede { font-size: 19px; color: var(--muted); max-width: 36em; }
+  .cta { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 20px; margin-top: 28px; }
+  .small { font-size: 15px; }
+  .shot { margin: 0; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 18px 50px rgba(15, 25, 40, 0.18); }
+  h2 { font-size: clamp(26px, 3.4vw, 36px); letter-spacing: -0.01em; }
+  .narrow { max-width: 40em; }
+  .stats { list-style: none; padding: 0; margin: 28px 0 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+  .stats li { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+  .stats strong { display: block; font-size: 34px; color: var(--blue); line-height: 1.1; }
+  .stats span { color: var(--muted); font-size: 15px; }
+  .features { list-style: none; padding: 0; margin: 32px 0 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 28px 32px; }
+  .features h3 { font-size: 18px; margin-bottom: 6px; }
+  .features h3::before { content: ""; display: block; width: 28px; height: 4px; border-radius: 2px; background: var(--amber); margin-bottom: 12px; }
+  .features p { margin: 0; color: var(--muted); }
+  .tour { display: grid; grid-template-columns: 1fr; gap: 28px; align-items: center; }
+  .tour + .tour { margin-top: 64px; }
+  @media (min-width: 1000px) {
+    .tour { grid-template-columns: 4fr 7fr; gap: 48px; }
+    .tour.flip > div { order: 2; }
+  }
+  .tour h3 { font-size: 24px; }
+  .tour p { color: var(--muted); }
+  .download { text-align: center; max-width: 720px; }
+  .download details { text-align: left; margin: 28px auto 0; border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; }
+  .download summary { cursor: pointer; font-weight: 600; }
+</style>

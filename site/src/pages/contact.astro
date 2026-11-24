@@ -1,0 +1,152 @@
+---
+import Base from '../layouts/Base.astro';
+import { SITE, FOUNDER } from '../site';
+---
+<Base title="Contact" description={`Contact the ${SITE.name} development team at ${SITE.email}, or send a feature request.`}>
+  <section class="contact">
+    <div class="wrap grid">
+      <div>
+        <p class="eyebrow">Contact</p>
+        <h1>Talk to the team behind {SITE.name}</h1>
+        <p class="lede">
+          Questions, problems or ideas — email the development team and a real person will read it.
+        </p>
+        <p class="mail"><a href={`mailto:${SITE.email}`}>{SITE.email}</a></p>
+
+        <h2>Who builds it</h2>
+        <p>
+          {SITE.name} is made by the development team at <strong>{SITE.company}</strong>. We build it for the
+          way people in construction actually use drawings: big plan sets, quick lookups, a few markups, and no
+          waiting around.
+        </p>
+        {FOUNDER.name && (
+          <div class="person">
+            <p class="name">{FOUNDER.name}</p>
+            <p class="muted role">{FOUNDER.role}, {SITE.company}</p>
+            {FOUNDER.bio && <p>{FOUNDER.bio}</p>}
+          </div>
+        )}
+      </div>
+
+      <div class="card">
+        <h2 id="req-h">Request a feature</h2>
+        <p class="muted">Tell us what would make {SITE.name} better for your work. It goes straight to the development team.</p>
+        <form id="req" aria-labelledby="req-h" novalidate>
+          <div class="field">
+            <label for="req-message">What would you like it to do?</label>
+            <span id="req-message-hint" class="hint">Describe what you’re trying to do; the more detail the better.</span>
+            <textarea id="req-message" name="message" rows="7" required minlength="3" maxlength="5000"
+              aria-describedby="req-message-hint" data-error="req-message-error"></textarea>
+            <div id="req-message-error" class="error-msg">
+              <span role="img" aria-label="Error">⚠</span> Please describe the feature (at least a few words).
+            </div>
+          </div>
+          <div class="field">
+            <label for="req-name">Your name <span class="muted">(optional)</span></label>
+            <input id="req-name" name="name" type="text" maxlength="200" autocomplete="name" />
+          </div>
+          <div class="field">
+            <label for="req-email">Email <span class="muted">(optional, if you’d like a reply)</span></label>
+            <span id="req-email-hint" class="hint">Format: you@example.com</span>
+            <input id="req-email" name="email" type="email" maxlength="200" autocomplete="email"
+              aria-describedby="req-email-hint" data-error="req-email-error" />
+            <div id="req-email-error" class="error-msg">
+              <span role="img" aria-label="Error">⚠</span> Enter an email address in the format you@example.com, or leave it empty.
+            </div>
+          </div>
+          <button class="btn" type="submit">Send request</button>
+          <p id="req-status" class="status" role="status" aria-live="polite"></p>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <script define:vars={{ endpoint: SITE.feedbackApi, email: SITE.email }}>
+    const form = document.getElementById('req');
+    const status = document.getElementById('req-status');
+    const button = form.querySelector('button');
+
+    // Keep aria-invalid and the error text link in step with :user-invalid.
+    const linkError = (el, shown) => {
+      const id = el.dataset.error;
+      if (!id) return;
+      const ids = (el.getAttribute('aria-describedby') || '').split(/\s+/).filter((x) => x && x !== id);
+      if (shown) ids.push(id);
+      if (ids.length) el.setAttribute('aria-describedby', ids.join(' '));
+      else el.removeAttribute('aria-describedby');
+    };
+    const sync = (el) => {
+      if (!el.matches?.('input, textarea')) return;
+      const bad = el.matches(':user-invalid') || el.classList.contains('was-invalid') && !el.validity.valid;
+      el.setAttribute('aria-invalid', bad ? 'true' : 'false');
+      el.classList.toggle('show-error', bad);
+      linkError(el, bad);
+    };
+    const fields = [...form.querySelectorAll('input, textarea')];
+    fields.forEach((el) => el.setAttribute('aria-invalid', 'false'));
+    form.addEventListener('blur', (e) => sync(e.target), true);
+    form.addEventListener('input', (e) => e.target.hasAttribute('aria-invalid') && sync(e.target));
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const invalid = fields.filter((el) => !el.validity.valid);
+      if (invalid.length) {
+        invalid.forEach((el) => {
+          el.classList.add('was-invalid');
+          sync(el);
+        });
+        invalid[0].focus();
+        return;
+      }
+      const data = Object.fromEntries(new FormData(form));
+      button.disabled = true;
+      status.textContent = 'Sending…';
+      try {
+        const r = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...data, app_version: 'website', platform: navigator.userAgent.slice(0, 200) }),
+        });
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `error ${r.status}`);
+        form.reset();
+        fields.forEach((el) => {
+          el.classList.remove('was-invalid', 'show-error');
+          el.setAttribute('aria-invalid', 'false');
+          linkError(el, false);
+        });
+        status.textContent = 'Thanks! Your request was sent to the team.';
+      } catch (err) {
+        status.textContent = `Sorry, it didn’t go through (${err.message}). You can email ${email} instead.`;
+      } finally {
+        button.disabled = false;
+      }
+    });
+  </script>
+</Base>
+
+<style>
+  .contact { padding: 64px 0; }
+  .grid { display: grid; grid-template-columns: 1fr; gap: 48px; }
+  @media (min-width: 960px) { .grid { grid-template-columns: 1fr 1fr; align-items: start; } }
+  h1 { font-size: clamp(32px, 4.4vw, 46px); letter-spacing: -0.02em; }
+  h2 { font-size: 24px; margin-top: 36px; }
+  .card h2 { margin-top: 0; }
+  .lede { font-size: 19px; color: var(--muted); }
+  .mail { font-size: 22px; font-weight: 650; margin: 8px 0 0; }
+  .person { border-left: 4px solid var(--amber); padding: 4px 0 4px 16px; margin-top: 20px; }
+  .person p { margin: 0 0 4px; }
+  .person .name { font-weight: 700; font-size: 19px; }
+  .card { background: var(--soft); border: 1px solid var(--line); border-radius: 14px; padding: 28px; }
+  .field { margin-bottom: 18px; }
+  label { display: block; font-weight: 600; margin-bottom: 4px; }
+  .hint { display: block; color: var(--muted); font-size: 14px; margin-bottom: 6px; }
+  input, textarea {
+    width: 100%; font: inherit; color: var(--ink); background: var(--bg);
+    border: 1.5px solid var(--line); border-radius: 8px; padding: 10px 12px;
+  }
+  textarea { resize: vertical; min-height: 150px; }
+  .error-msg { display: none; color: #c5221f; font-size: 14px; margin-top: 6px; }
+  :is(:user-invalid, .show-error) { border-color: #c5221f; }
+  :is(:user-invalid, .show-error) + .error-msg { display: block; }
+  .status { min-height: 1.5em; margin: 14px 0 0; font-weight: 600; }
+</style>
