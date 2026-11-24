@@ -5,7 +5,7 @@ export const SITE = {
   email: 'pdf@usframefactory.com',
   company: 'US Frame Factory',
   description:
-    'A fast, simple PDF viewer for construction plan sets. Opens big drawing sets instantly, jumps between sheets by number, and does the light markup, measuring and text edits you need on site.',
+    'A free, fast, simple PDF viewer for construction plan sets. Opens big drawing sets instantly, jumps between sheets by number, and does the light markup, measuring and text edits you need on site.',
   download: 'https://github.com/US-Frame-Factory/easy-peasy-pdf/releases/latest/download/QuickFastPDF-setup.exe',
   downloadMsi: 'https://github.com/US-Frame-Factory/easy-peasy-pdf/releases/latest/download/QuickFastPDF.msi',
   releases: 'https://github.com/US-Frame-Factory/easy-peasy-pdf/releases',
