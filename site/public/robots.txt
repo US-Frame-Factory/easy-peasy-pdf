@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://quickfastpdf.com/sitemap.xml
+Sitemap: https://www.quickfastpdf.com/sitemap.xml

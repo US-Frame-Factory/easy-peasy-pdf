@@ -1,7 +1,7 @@
 // Site-wide facts in one place.
 export const SITE = {
   name: 'Quick Fast PDF',
-  url: 'https://quickfastpdf.com',
+  url: 'https://www.quickfastpdf.com',
   email: 'pdf@usframefactory.com',
   company: 'US Frame Factory',
   description:
