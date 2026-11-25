@@ -38,6 +38,19 @@ const features = [
 ];
 ---
 <Base>
+  <script type="application/ld+json" slot="head" set:html={JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'SoftwareApplication',
+    name: SITE.name,
+    url: SITE.url,
+    description: SITE.description,
+    applicationCategory: 'BusinessApplication',
+    operatingSystem: 'Windows 10, Windows 11',
+    downloadUrl: SITE.download,
+    image: `${SITE.url}/og.png`,
+    offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+    publisher: { '@type': 'Organization', name: SITE.company, url: SITE.companyUrl },
+  })} />
   <section class="hero">
     <div class="wrap hero-grid">
       <div>
@@ -127,6 +140,7 @@ const features = [
       <h2 id="download-h">Download {SITE.name}</h2>
       <p class="muted">100% free, no account or sign-up. Windows 10 and 11 (64-bit), about 9 MB. Updates itself when a new version is out. </p>
       <p><a class="btn" href={SITE.download} data-download>Download for Windows</a></p>
+      <p class="small made">Made by <a href={SITE.companyUrl}>{SITE.company}</a>, {SITE.companyBlurb}.</p>
       <p class="small"><span data-version>Latest version</span> · <a href={SITE.downloadMsi}>MSI for IT / per-machine installs</a> · <a href={SITE.releases}>What’s new</a></p>
       <details>
         <summary>Windows says “Windows protected your PC”?</summary>
@@ -180,5 +194,6 @@ const features = [
   .tour p { color: var(--muted); }
   .download { text-align: center; max-width: 720px; }
   .download details { text-align: left; margin: 28px auto 0; border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; }
+  .made { color: var(--muted); }
   .download summary { cursor: pointer; font-weight: 600; }
 </style>

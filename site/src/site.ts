@@ -4,6 +4,8 @@ export const SITE = {
   url: 'https://www.quickfastpdf.com',
   email: 'pdf@usframefactory.com',
   company: 'US Frame Factory',
+  companyUrl: 'https://usframefactory.com/',
+  companyBlurb: 'an on-demand manufacturer and full-service supplier of cold-formed steel framing in New Iberia, Louisiana',
   description:
     'A free, fast, simple PDF viewer for construction plan sets. Opens big drawing sets instantly, jumps between sheets by number, and does the light markup, measuring and text edits you need on site.',
   download: 'https://github.com/US-Frame-Factory/easy-peasy-pdf/releases/latest/download/QuickFastPDF-setup.exe',
@@ -21,7 +23,7 @@ export const FOUNDER = {
   photo: '/img/founder.webp',
   link: 'https://mateoatwi.com/',
   bio: [
-    'Mateo is a mechanical engineer (Georgia Tech) from New Iberia, Louisiana. With his brother Tiago he runs US Frame Factory, an on-demand manufacturer of cold-formed steel framing, and he co-founded the modular construction company Boxy.',
+    'Mateo is a mechanical engineer (Georgia Tech) from New Iberia, Louisiana. With his brother Tiago he runs <a href="https://usframefactory.com/">US Frame Factory</a>, an on-demand manufacturer of cold-formed steel framing, and he co-founded the modular construction company Boxy.',
     'Before that he was VP of Operations at BMarko Structures, where he helped build 48 hospital rooms for COVID-19 patients in four weeks, and he interned twice at NASA Johnson Space Center working on exercise systems for long-duration spaceflight.',
   ],
 };

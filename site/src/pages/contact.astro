@@ -15,7 +15,8 @@ import { SITE, FOUNDER } from '../site';
 
         <h2>Who builds it</h2>
         <p>
-          {SITE.name} is made by the development team at <strong>{SITE.company}</strong>. We build it for the
+          {SITE.name} is made by the development team at <strong><a href={SITE.companyUrl}>{SITE.company}</a></strong>,
+          {SITE.companyBlurb}. We build it for the
           way people in construction actually use drawings: big plan sets, quick lookups, a few markups, and no
           waiting around.
         </p>
@@ -25,7 +26,7 @@ import { SITE, FOUNDER } from '../site';
             <div>
               <p class="name">{FOUNDER.name}</p>
               <p class="muted role">{FOUNDER.role}, {SITE.name}</p>
-              {FOUNDER.bio.map((para) => <p>{para}</p>)}
+              {FOUNDER.bio.map((para) => <p set:html={para} />)}
               {FOUNDER.link && <p><a href={FOUNDER.link}>{FOUNDER.link.replace(/^https?:\/\//, '').replace(/\/$/, '')}</a></p>}
             </div>
           </div>
