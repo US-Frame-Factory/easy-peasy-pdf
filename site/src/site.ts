@@ -13,9 +13,15 @@ export const SITE = {
   feedbackApi: 'https://easy-peasy-pdf-feedback-api.vercel.app/api/feature-request',
 };
 
-// Shown on the contact page. The founder card appears only once `name` is filled in.
+// Shown on the contact page. The founder card appears only when `name` is filled in.
+// Facts from mateoatwi.com and familyisimportant.com/about.
 export const FOUNDER = {
-  name: '',
+  name: 'Mateo Atwi',
   role: 'Founder',
-  bio: '',
+  photo: '/img/founder.webp',
+  link: 'https://mateoatwi.com/',
+  bio: [
+    'Mateo is a mechanical engineer (Georgia Tech) from New Iberia, Louisiana. With his brother Tiago he runs US Frame Factory, an on-demand manufacturer of cold-formed steel framing, and he co-founded the modular construction company Boxy.',
+    'Before that he was VP of Operations at BMarko Structures, where he helped build 48 hospital rooms for COVID-19 patients in four weeks, and he interned twice at NASA Johnson Space Center working on exercise systems for long-duration spaceflight.',
+  ],
 };
